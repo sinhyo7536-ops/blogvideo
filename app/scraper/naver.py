@@ -122,3 +122,12 @@ def download_images(post: BlogPost, dest: Path, client: httpx.Client | None = No
         if own:
             c.close()
     return post.model_copy(update={"images": kept})
+
+
+def validate_url(url: str) -> str:
+    """작업 등록 전 빠른 검사. 단축 링크는 네트워크 없이 통과시킨다."""
+    url = _normalize(url)
+    if urlparse(url).hostname in _SHORT_HOSTS:
+        return url
+    parse_naver_url(url)
+    return url
