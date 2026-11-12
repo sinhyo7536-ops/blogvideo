@@ -142,7 +142,7 @@ dialog::backdrop { background: rgba(0,0,0,.45); }
 @media (min-width: 900px) {
   .layout { max-width: 960px; }
   .scenes { grid-template-columns: 1fr 1fr; }
-  .edit-options { grid-template-columns: 1fr 1fr 1.3fr 1.4fr; }
+  .edit-options { grid-template-columns: 1fr 1.3fr; }
   .edit-options .seg[data-name="quality"] { grid-column: auto; }
   .edit-options select { grid-column: auto; }
 }
@@ -180,3 +180,9 @@ dialog::backdrop { background: rgba(0,0,0,.45); }
 @media (min-width: 720px) {
   .choice { grid-template-columns: 1fr 1fr; }
 }
+
+/* 목소리·배경음악 */
+.voice-row { display: flex; gap: .5rem; align-items: stretch; margin-bottom: .5rem; }
+.voice-row select, .voice-row input { flex: 1; min-width: 0; }
+.voice-row button { flex: none; white-space: nowrap; }
+#scene-summary { margin: .2rem 0 .6rem; }

@@ -25,6 +25,10 @@ MOTIONS = ("zoom_in", "zoom_out", "pan_left", "pan_right", "pan_up", "pan_down",
 TRANSITIONS = ("fade", "slide", "push", "circle", "black", "zoom", "wipe")
 
 
+VOICE_KEYS = ("female", "female_bright", "female_calm", "male", "male_deep", "hyunsu",
+              "ava", "emma", "vivienne", "seraphina", "andrew", "brian", "florian")
+
+
 class Scene(BaseModel):
     text: str
     image_index: int | None
@@ -56,7 +60,8 @@ class VideoScript(BaseModel):
 
 class RenderOptions(BaseModel):
     aspect: Literal["16:9", "9:16"] = "16:9"
-    voice: Literal["female", "male"] = "female"
+    voice: str = "female"                                   # VOICE_KEYS 중 하나 (목록은 app/tts.py)
+    speed: Literal["slow", "normal", "fast"] = "normal"     # 말하는 속도
     quality: Literal["720p", "1080p", "1440p"] = "1080p"
     bgm: str | None = None
     bgm_volume: float = Field(default=0.15, ge=0.0, le=1.0)
@@ -66,6 +71,13 @@ class RenderOptions(BaseModel):
     outro: bool = True       # 끝 화면
     title_bar: bool = True   # 제목 띠 + 장소 이름표
     channel: str = Field(default="", max_length=40)  # 끝 화면·썸네일의 채널 이름 (서버가 설정값으로 채움)
+
+    @field_validator("voice")
+    @classmethod
+    def _known_voice(cls, v: str) -> str:
+        if v not in VOICE_KEYS:
+            raise ValueError("unknown voice")
+        return v
 
     @field_validator("bgm")
     @classmethod

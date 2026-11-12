@@ -36,6 +36,8 @@ class Steps:
     api_key: Callable[[], str]
     auto_script: Callable = auto_script
     channel_name: Callable[[], str] = lambda: ""   # 설정의 채널 이름 (비면 블로그 이름)
+    voice_preview: Callable | None = None   # (목소리, 속도, 저장할 파일) → 파일
+    fetch_music: Callable | None = None     # (유튜브 주소, 음악 폴더) → 파일 이름
     gemini_script: Callable | None = None
     gemini_key: Callable[[], str] = lambda: ""
 
@@ -245,7 +247,8 @@ class JobManager:
     def _render(self, job_id: str) -> None:
         s = self._set(job_id, stage="tts", progress=0.0)
         script = self.steps.synthesize_all(s.script, s.options.voice, self.dir(job_id) / "audio",
-                                           on_progress=lambda p: self._set(job_id, progress=round(0.2 * p, 3)))
+                                           on_progress=lambda p: self._set(job_id, progress=round(0.2 * p, 3)),
+                                           speed=s.options.speed)
         self._set(job_id, script=script, stage="rendering", progress=0.2)
         channel = (self.steps.channel_name() or s.post.blog_name or "").strip()[:40]
         options = s.options.model_copy(update={"channel": channel})

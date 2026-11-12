@@ -71,12 +71,13 @@ def default_steps() -> Steps:
     from app.scraper.naver import download_images, fetch_post
     from app.script import generate_script
     from app.gemini import generate_script_gemini
-    from app.tts import synthesize_all
+    from app.tts import preview, synthesize_all
+    from app.ytmusic import fetch_audio
 
     return Steps(fetch_post=fetch_post, download_images=download_images, generate_script=generate_script,
                  synthesize_all=synthesize_all, render_video=render_video,
                  api_key=lambda: config.load_config().get("anthropic_api_key", ""),
-                 gemini_script=generate_script_gemini,
+                 gemini_script=generate_script_gemini, voice_preview=preview, fetch_music=fetch_audio,
                  channel_name=lambda: config.load_config().get("channel_name", ""),
                  gemini_key=lambda: config.load_config().get("gemini_api_key", ""))
 
@@ -89,6 +90,15 @@ class CreateJob(BaseModel):
 
 class WriteMode(BaseModel):
     mode: Literal["api", "auto", "gemini", "manual"]
+
+
+class VoicePreview(BaseModel):
+    voice: str = "female"
+    speed: Literal["slow", "normal", "fast"] = "normal"
+
+
+class YoutubeMusic(BaseModel):
+    url: str
 
 
 class FreeMode(BaseModel):
@@ -301,6 +311,45 @@ def create_app(manager: JobManager | None = None) -> FastAPI:
             if d.exists():
                 out += [{"name": p.name, "builtin": is_builtin} for p in sorted(d.glob("*.mp3"))]
         return out
+
+    @app.get("/api/music/file/{name}")
+    def music_file(name: str):
+        """배경음악 미리 듣기."""
+        from app.render import resolve_bgm
+
+        p = resolve_bgm(name)
+        if p is None:
+            return JSONResponse({"message": "음악 파일이 없어요."}, status_code=404)
+        return FileResponse(p, media_type="audio/mpeg")
+
+    @app.post("/api/music/youtube")
+    def youtube_music(body: YoutubeMusic):
+        """유튜브 링크의 소리를 내 음악 폴더에 MP3로 가져온다."""
+        from app.ytmusic import normalize
+
+        url = normalize(body.url)
+        if manager.steps.fetch_music is None:
+            raise UserError(UNKNOWN)
+        return {"name": manager.steps.fetch_music(url, user_music_dir()), "builtin": False}
+
+    @app.get("/api/voices")
+    def voices():
+        from app.tts import VOICE_LIST
+
+        return [{"key": k, "label": v.label, "group": v.group} for k, v in VOICE_LIST.items()]
+
+    @app.post("/api/voice-preview")
+    def voice_preview(body: VoicePreview):
+        """목소리 미리 듣기 (한 번 만든 것은 다시 쓴다)."""
+        from app.models import VOICE_KEYS
+        from app.paths import config_dir
+
+        if body.voice not in VOICE_KEYS or manager.steps.voice_preview is None:
+            raise UserError(BAD_INPUT)
+        out = config_dir() / "previews" / f"{body.voice}_{body.speed}.mp3"
+        if not out.exists() or out.stat().st_size == 0:
+            manager.steps.voice_preview(body.voice, body.speed, out)
+        return FileResponse(out, media_type="audio/mpeg", headers={"Cache-Control": "no-cache"})
 
     @app.post("/api/music")
     async def upload_music(request: Request, file: UploadFile = File(...)):

@@ -6,7 +6,6 @@ import re
 from app.models import BlogPost, Scene, VideoScript
 from app.script import short_title
 
-MAX_SCENES = 12
 MAX_LEN = 60
 CLOSING = "끝까지 봐 주셔서 감사합니다. 구독과 좋아요 부탁드려요!"
 _STOP = {"그리고", "정말", "너무", "오늘", "후기", "솔직", "있는", "없는", "하는", "합니다", "입니다"}
@@ -43,14 +42,6 @@ def _chunk(sentence: str) -> list[str]:
     return parts
 
 
-def _pick(items: list[str], n: int) -> list[str]:
-    """글 전체에서 고르게 n개를 고른다."""
-    if len(items) <= n:
-        return items
-    step = len(items) / n
-    return [items[int(i * step)] for i in range(n)]
-
-
 def _tags(title: str) -> list[str]:
     words = re.findall(r"[가-힣A-Za-z0-9]{2,}", title)
     tags: list[str] = []
@@ -61,7 +52,7 @@ def _tags(title: str) -> list[str]:
 
 
 def auto_script(post: BlogPost) -> VideoScript:
-    body = _pick(_sentences(post.paragraphs), MAX_SCENES - 2)
+    body = _sentences(post.paragraphs)   # 글 전체를 순서대로 (장면 수·영상 길이 제한 없음)
     title = post.title.strip() or "오늘의 이야기"
     texts = [title[:MAX_LEN]] + body + [CLOSING]
     n_img = len(post.images)

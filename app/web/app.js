@@ -57,6 +57,7 @@ async function api(method, path, body) {
 }
 
 function show(view) {
+  if (state.view === "edit" && view !== "edit") stopAudio();
   state.view = view;
   VIEWS.forEach((v) => $("view-" + v).classList.toggle("hidden", v !== view));
   window.scrollTo(0, 0);
@@ -94,6 +95,7 @@ document.querySelectorAll(".seg").forEach((seg) => {
     setSeg(seg.dataset.name, b.dataset.value);
     if (seg.dataset.name === "mode") setMode(b.dataset.value);
     if (seg.dataset.name === "template") setTemplateHelp();
+    if (seg.dataset.name === "bgm-source") showBgmSource(b.dataset.value);
   });
 });
 
@@ -142,6 +144,100 @@ async function loadMusic() {
   }
 }
 
+
+// ---------- 목소리·배경음악 ----------
+async function loadVoices() {
+  const voices = await api("GET", "/api/voices");
+  const sel = $("voice");
+  sel.innerHTML = "";
+  const groups = {};
+  voices.forEach((v) => {
+    if (!groups[v.group]) {
+      groups[v.group] = document.createElement("optgroup");
+      groups[v.group].label = v.group === "다국어" ? "다국어 (억양이 조금 달라요)" : v.group;
+      sel.appendChild(groups[v.group]);
+    }
+    groups[v.group].appendChild(new Option(v.label, v.key));
+  });
+}
+
+function playAudio(el, src, btn, idle) {
+  if (!el.paused && el.dataset.src === src) {   // 같은 것을 다시 누르면 멈춤
+    el.pause();
+    btn.textContent = idle;
+    return;
+  }
+  el.dataset.src = src;
+  el.src = src;
+  el.onended = el.onpause = () => { btn.textContent = idle; };
+  el.play().then(() => { btn.textContent = "멈추기"; }).catch(() => { btn.textContent = idle; });
+}
+
+function stopAudio() {
+  ["voice-audio", "bgm-audio"].forEach((id) => { $(id).pause(); });
+}
+
+async function previewVoice() {
+  const btn = $("btn-voice-play");
+  const audio = $("voice-audio");
+  if (!audio.paused) { audio.pause(); return; }
+  btn.disabled = true;
+  btn.textContent = "만드는 중…";
+  try {
+    const res = await fetch("/api/voice-preview", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ voice: $("voice").value, speed: segValue("speed") || "normal" }) });
+    if (!res.ok) {
+      let msg = "목소리를 들려 드리지 못했어요.";
+      try { msg = (await res.json()).message || msg; } catch (e) { /* 무시 */ }
+      throw new Error(msg);
+    }
+    const url = URL.createObjectURL(await res.blob());
+    btn.disabled = false;
+    playAudio(audio, url, btn, "미리 듣기");
+  } catch (e) {
+    toast(e.message);
+    btn.textContent = "미리 듣기";
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function previewBgm() {
+  const name = $("bgm-edit").value;
+  if (!name) return toast("먼저 배경음악을 골라 주세요.");
+  playAudio($("bgm-audio"), `/api/music/file/${encodeURIComponent(name)}`, $("btn-bgm-play"), "미리 듣기");
+}
+
+function showBgmSource(which) {
+  setSeg("bgm-source", which);
+  $("bgm-pick").classList.toggle("hidden", which !== "pick");
+  $("bgm-youtube").classList.toggle("hidden", which !== "youtube");
+}
+
+async function fetchYoutubeMusic() {
+  setError("bgm-error", "");
+  $("bgm-ok").classList.add("hidden");
+  const url = $("yt-url").value.trim();
+  if (!url) return setError("bgm-error", "유튜브 영상 주소를 넣어 주세요.");
+  const btn = $("btn-yt-music");
+  btn.disabled = true;
+  btn.textContent = "가져오는 중…";
+  try {
+    const r = await api("POST", "/api/music/youtube", { url });
+    await loadMusic();
+    $("bgm-edit").value = r.name;
+    $("yt-url").value = "";
+    showBgmSource("pick");
+    const ok = $("bgm-ok");
+    ok.textContent = `배경음악으로 골랐어요: ${r.name.replace(/\.mp3$/i, "")}`;
+    ok.classList.remove("hidden");
+  } catch (e) {
+    setError("bgm-error", e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "음악 가져오기";
+  }
+}
 
 // ---------- 작업 흐름 ----------
 function routeJob(job) {
@@ -259,7 +355,12 @@ function openEdit(job) {
   state.script = JSON.parse(JSON.stringify(job.script));
   state.options = Object.assign({}, job.options);
   setSeg("aspect", state.options.aspect);
-  setSeg("voice", state.options.voice);
+  $("voice").value = state.options.voice || "female";
+  if (!$("voice").value) $("voice").value = "female";
+  setSeg("speed", state.options.speed || "normal");
+  showBgmSource("pick");
+  setError("bgm-error", "");
+  $("bgm-ok").classList.add("hidden");
   setSeg("quality", state.options.quality || "1080p");
   $("bgm-edit").value = state.options.bgm || "";
   setSeg("template", state.options.template || "clean");
@@ -310,6 +411,7 @@ function renderScenes() {
   list.innerHTML = "";
   const n = state.script.scenes.length;
   $("empty-scenes").classList.toggle("hidden", n > 0);
+  updateSummary();
   state.script.scenes.forEach((scene, i) => {
     const li = document.createElement("li");
     li.className = "scene-card";
@@ -358,7 +460,7 @@ function renderScenes() {
       count.textContent = `${ta.value.length}자` + (ta.value.length > 40 ? " · 조금 길어요" : "");
       count.classList.toggle("over", ta.value.length > 40);
     };
-    ta.addEventListener("input", upd);
+    ta.addEventListener("input", () => { upd(); updateSummary(); });
     upd();
 
     const place = document.createElement("input");
@@ -386,6 +488,19 @@ function renderScenes() {
     li.append(head, thumb, ta, count, place, pickers);
     list.appendChild(li);
   });
+}
+
+function updateSummary() {
+  // 예상 길이: 성우가 1초에 5~6자쯤 읽고, 장면마다 0.4초 쉰다. 시작·끝 화면은 6.5초.
+  const scenes = state.script.scenes.filter((s) => s.text.trim());
+  const pace = { slow: 4.7, normal: 5.5, fast: 6.5 }[segValue("speed") || "normal"];
+  let sec = scenes.reduce((a, s) => a + s.text.trim().length / pace + 0.4, 0);
+  if (scenes.length) sec += ($("opt-intro").checked ? 3 : 0) + ($("opt-outro").checked ? 3.5 : 0);
+  const m = Math.floor(sec / 60);
+  const rest = Math.round(sec % 60);
+  $("scene-summary").textContent = scenes.length
+    ? `장면 ${scenes.length}개 · 예상 길이 약 ${m ? m + "분 " : ""}${rest}초 (장면을 지우거나 더하면 길이가 바뀌어요)`
+    : "";
 }
 
 function moveScene(i, d) {
@@ -468,7 +583,8 @@ async function startRender() {
   setError("edit-error", "");
   const script = collectScript();
   if (!script.scenes.length) return setError("edit-error", "자막이 있는 장면이 하나 이상 있어야 해요.");
-  const options = { aspect: segValue("aspect"), voice: segValue("voice"), quality: segValue("quality") || "1080p",
+  const options = { aspect: segValue("aspect"), voice: $("voice").value || "female",
+                    speed: segValue("speed") || "normal", quality: segValue("quality") || "1080p",
                     bgm: $("bgm-edit").value || null,
                     template: segValue("template") || "clean", effects: segValue("effects") || "auto",
                     intro: $("opt-intro").checked, outro: $("opt-outro").checked,
@@ -688,6 +804,14 @@ function goHome(clear) {
   show("home");
 }
 
+$("btn-voice-play").onclick = previewVoice;
+$("btn-bgm-play").onclick = previewBgm;
+$("btn-yt-music").onclick = fetchYoutubeMusic;
+$("yt-url").addEventListener("keydown", (e) => { if (e.key === "Enter") fetchYoutubeMusic(); });
+$("bgm-edit").addEventListener("change", () => { $("bgm-audio").pause(); });
+$("voice").addEventListener("change", () => { $("voice-audio").pause(); });
+document.querySelector('#view-edit .seg[data-name="speed"]').addEventListener("click", () => updateSummary());
+["opt-intro", "opt-outro"].forEach((id) => $(id).addEventListener("change", () => updateSummary()));
 $("btn-load").onclick = startLoad;
 $("url").addEventListener("keydown", (e) => { if (e.key === "Enter") startLoad(); });
 $("btn-recommend").onclick = () => writeScript(segValue("mode") || "auto");
@@ -733,7 +857,7 @@ window.addEventListener("pagehide", () => {
 
 (async function init() {
   try {
-    await Promise.all([loadInfo(), loadMusic()]);
+    await Promise.all([loadInfo(), loadMusic(), loadVoices()]);
   } catch (e) {
     setError("home-error", e.message);
   }

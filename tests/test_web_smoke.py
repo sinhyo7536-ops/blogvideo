@@ -448,3 +448,72 @@ def test_choose_writing_method_again(live_server, browser):
     page.wait_for_selector("#edit-title:has-text('직접 작성')", timeout=5000)
     assert seen and "새로" in seen[0]
     assert page.locator(".scene-card").count() == 0
+
+
+# ---------- 목소리 넓히기, 유튜브 링크 배경음악, 예상 길이 ----------
+def test_voice_choice_speed_and_preview(live_server, browser):
+    page = browser.new_page(viewport={"width": 390, "height": 844})
+    _to_edit(page, live_server)
+    assert page.locator("#voice option").count() >= 12
+    assert page.locator("#voice optgroup").count() == 2
+    page.select_option("#voice", "hyunsu")
+    page.click('#view-edit .seg[data-name="speed"] button[data-value="fast"]')
+    with page.expect_response("**/api/voice-preview") as resp:
+        page.click("#btn-voice-play")
+    assert resp.value.status == 200 and resp.value.request.post_data_json == {"voice": "hyunsu", "speed": "fast"}
+    assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+    page.click("button:has-text('영상 만들기')")
+    page.wait_for_selector("#view-result:not(.hidden)", timeout=10000)
+    job = _job(page)
+    assert (job["options"]["voice"], job["options"]["speed"]) == ("hyunsu", "fast")
+    page.click("#btn-reedit")
+    page.wait_for_selector("#view-edit:not(.hidden)")
+    assert page.input_value("#voice") == "hyunsu"
+    assert page.locator('#view-edit .seg[data-name="speed"] button.on').get_attribute("data-value") == "fast"
+
+
+def test_youtube_link_becomes_background_music(live_server, browser):
+    page = browser.new_page(viewport={"width": 1280, "height": 800})
+    _to_edit(page, live_server)
+    assert page.is_visible("#bgm-pick") and not page.is_visible("#bgm-youtube")
+    assert page.locator("#bgm-edit option").count() >= 4          # 없음 + 샘플 3곡
+    page.click('.seg[data-name="bgm-source"] button[data-value="youtube"]')
+    assert page.is_visible("#yt-url") and not page.is_visible("#bgm-pick")
+    assert "허락" in page.inner_text("#bgm-youtube .warn-box")
+    page.click("#btn-yt-music")                                    # 빈 칸
+    page.wait_for_selector("#bgm-error:not(.hidden)")
+    page.fill("#yt-url", "https://example.com/not-youtube")
+    page.click("#btn-yt-music")
+    page.wait_for_selector("#bgm-error:has-text('유튜브 영상 주소')")
+    page.fill("#yt-url", "https://www.youtube.com/watch?v=abc")
+    page.click("#btn-yt-music")
+    page.wait_for_selector("#bgm-ok:not(.hidden)", timeout=5000)
+    assert page.input_value("#bgm-edit") == "유튜브 곡.mp3" and page.is_visible("#bgm-pick")
+    page.click("button:has-text('영상 만들기')")
+    page.wait_for_selector("#view-result:not(.hidden)", timeout=10000)
+    assert _job(page)["options"]["bgm"] == "유튜브 곡.mp3"
+
+
+def test_sample_music_can_be_chosen_and_previewed(live_server, browser):
+    page = browser.new_page(viewport={"width": 1280, "height": 800})
+    _to_edit(page, live_server)
+    page.click("#btn-bgm-play")                                    # 아무것도 안 골랐을 때
+    page.wait_for_selector("#toast:not(.hidden)")
+    name = page.locator("#bgm-edit option >> nth=1").get_attribute("value")
+    page.select_option("#bgm-edit", name)
+    with page.expect_response("**/api/music/file/**") as resp:
+        page.click("#btn-bgm-play")
+    assert resp.value.status in (200, 206)
+
+
+def test_scene_summary_shows_count_and_length(live_server, browser):
+    page = browser.new_page(viewport={"width": 1280, "height": 800})
+    _to_edit(page, live_server)
+    first = page.inner_text("#scene-summary")
+    assert first.startswith("장면 1개 · 예상 길이 약")
+    page.click("#btn-add-scene")
+    page.fill(".scene-card textarea >> nth=1", "가" * 330)          # 약 1분 분량
+    assert page.inner_text("#scene-summary").startswith("장면 2개 · 예상 길이 약 1분")
+    page.on("dialog", lambda d: d.accept())
+    page.click(".scene-card >> nth=1 >> button[title='삭제']")
+    assert page.inner_text("#scene-summary") == first

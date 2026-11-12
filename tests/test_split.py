@@ -273,3 +273,31 @@ def test_every_transition_and_still_motion_render(tmp_path, photo_post):
     script = VideoScript(scenes=scenes, yt_title="t", yt_description="d", yt_tags=[])
     out = render_video(photo_post, script, RenderOptions(quality="720p", intro=False, outro=False), tmp_path / "w")
     assert out.exists() and "zoompan" not in _motion_chain("still", 1.0, (1280, 720))
+
+
+# ---------- 긴 영상: 장면이 많아도 끝까지 만들어진다 ----------
+def test_many_scenes_are_joined_in_groups(tmp_path, photo_post):
+    import subprocess
+
+    from app.render import GROUP, render_video
+
+    audio = str(make_silence(tmp_path / "a.mp3", 0.5))
+    n = GROUP * 2 + 3          # 묶음 3개(마지막은 덜 찬 묶음)
+    scenes = [Scene(text=f"장면 {i}", image_index=i % 3, duration=0.9, audio_path=audio) for i in range(n)]
+    script = VideoScript(scenes=scenes, yt_title="t", yt_description="d", yt_tags=[], intro_title="긴 영상")
+    seen = []
+    out = render_video(photo_post, script, RenderOptions(quality="720p", effects="soft"), tmp_path / "w",
+                       on_progress=seen.append)
+    dur = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0",
+                                str(out)], capture_output=True, text=True).stdout)
+    assert abs(dur - (n * 0.9 + 6.5)) < 0.4          # 시작 3초 + 끝 3.5초 포함, 길이가 줄거나 늘지 않음
+    assert len(list((tmp_path / "w").glob("part_0_*.mkv"))) == 3
+    assert seen == sorted(seen) and seen[-1] == 1.0
+    # 묶음 경계(8번째 장면 → 9번째 장면)도 끊기지 않고 전환됨: 경계 직후 화면이 두 사진의 중간
+    at = 3.0 + (GROUP - 1) * 0.9 + 0.2
+    raw = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{at:.2f}", "-i", str(out), "-frames:v", "1",
+                          "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], capture_output=True).stdout
+    import numpy as np
+
+    px = np.frombuffer(raw, np.uint8).reshape(720, 1280, 3)[360, 900].astype(int)
+    assert sorted(px)[1] > 20, px.tolist()            # 한 가지 원색이 아니라 섞인 색

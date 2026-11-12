@@ -197,45 +197,108 @@ def _build_segments(post: BlogPost, script: VideoScript, options: RenderOptions,
     return segs
 
 
-def _join(clips: list[Path], segs: list[Segment], cross: float, transitions: tuple[str, ...],
-          bgm: Path | None, bgm_volume: float, out: Path, log: Path) -> None:
-    """조각들을 전환 효과로 잇고 목소리·배경음악을 얹는다. 영상 조각은 전환 시간만큼 길게 만들어져 있어
-    전환이 소리의 장면 경계에서 정확히 끝난다(전체 길이 = 장면 길이의 합)."""
-    n = len(clips)
-    total = sum(s.duration for s in segs)
+GROUP = 8   # 한 번에 잇는 토막 수. 장면이 많으면(긴 영상) 여러 묶음으로 나눠 잇고, 묶음끼리 다시 잇는다
+
+
+@dataclass
+class Part:
+    """이어 붙일 한 덩어리. 영상은 뒤와 겹칠 전환 시간만큼 길게 들어 있다(맨 마지막 덩어리만 예외)."""
+    video: Path
+    duration: float          # 소리 기준 길이 (전환 겹침 제외)
+    kind: str                # 이 덩어리로 들어올 때의 xfade 종류
+    audio: str | None = None  # 따로 있는 소리 파일. 없고 muxed도 아니면 무음
+    muxed: bool = False      # 영상 파일 안에 소리가 같이 들어 있음(묶음 결과)
+
+
+def _merge(parts: list[Part], cross: float, out: Path, log: Path, tail: bool,
+           final: tuple[Path | None, float] | None = None) -> None:
+    """parts를 전환 효과로 이어 하나로 만든다. 전환은 다음 덩어리의 소리가 시작되는 순간부터 겹치므로
+    소리 길이는 그대로다(전체 길이 = 길이의 합). tail이면 결과 영상 끝에 겹칠 시간이 남아 있다.
+    final=(배경음악, 음량)이면 마지막 단계: 처음·끝 페이드와 배경음악을 넣고 MP4로 만든다."""
+    n = len(parts)
+    total = sum(p.duration for p in parts)
     args: list[str] = []
-    for c in clips:
-        args += ["-i", str(c)]
-    for s in segs:
-        if s.audio:
-            args += ["-i", s.audio]
+    for p in parts:
+        args += ["-i", str(p.video)]
+    a_src = []
+    for i, p in enumerate(parts):
+        if p.muxed:
+            a_src.append(f"{i}:a")
         else:
-            args += ["-f", "lavfi", "-t", f"{s.duration:.3f}", "-i", "anullsrc=r=44100:cl=stereo"]
+            if p.audio:
+                args += ["-i", p.audio]
+            else:
+                args += ["-f", "lavfi", "-t", f"{p.duration:.3f}", "-i", "anullsrc=r=44100:cl=stereo"]
+            a_src.append(f"{_count_inputs(args) - 1}:a")
     graph = "".join(f"[{i}:v]fps={FPS},settb=AVTB,setpts=PTS-STARTPTS[c{i}];" for i in range(n))
     last = "c0"
     offset = 0.0
     for i in range(1, n):
-        offset += segs[i - 1].duration
-        kind = segs[i].transition or transitions[(i - 1) % len(transitions)]
-        graph += f"[{last}][c{i}]xfade=transition={kind}:duration={cross:.3f}:offset={offset:.3f}[x{i}];"
+        offset += parts[i - 1].duration
+        graph += f"[{last}][c{i}]xfade=transition={parts[i].kind}:duration={cross:.3f}:offset={offset:.3f}[x{i}];"
         last = f"x{i}"
-    graph += (f"[{last}]fade=t=in:st=0:d={FADE},fade=t=out:st={max(0.0, total - FADE):.3f}:d={FADE},"
-              f"format=yuv420p[v];")
-    for i, s in enumerate(segs):
-        graph += (f"[{n + i}:a]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo,apad,"
-                  f"atrim=0:{s.duration:.3f},asetpts=PTS-STARTPTS[a{i}];")
+    if final is not None:
+        graph += (f"[{last}]fade=t=in:st=0:d={FADE},fade=t=out:st={max(0.0, total - FADE):.3f}:d={FADE},"
+                  f"format=yuv420p[v];")
+    else:
+        graph += f"[{last}]format=yuv420p[v];"
+    for i, p in enumerate(parts):
+        graph += (f"[{a_src[i]}]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo,apad,"
+                  f"atrim=0:{p.duration:.3f},asetpts=PTS-STARTPTS[a{i}];")
     graph += "".join(f"[a{i}]" for i in range(n)) + f"concat=n={n}:v=0:a=1[voice]"
-    if bgm:
+    amap = "[voice]"
+    if final is not None and final[0]:
+        bgm, volume = final
         args += ["-stream_loop", "-1", "-i", str(bgm)]
-        graph += (f";[{2 * n}:a]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo,volume={bgm_volume},"
-                  f"atrim=0:{total:.3f},afade=t=out:st={max(0.0, total - 2):.3f}:d=2[b];"
+        graph += (f";[{_count_inputs(args) - 1}:a]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo,"
+                  f"volume={volume},atrim=0:{total:.3f},afade=t=out:st={max(0.0, total - 2):.3f}:d=2[b];"
                   f"[voice][b]amix=inputs=2:duration=first:normalize=0[a]")
         amap = "[a]"
-    else:
-        amap = "[voice]"
-    _run([*args, "-filter_complex", graph, "-map", "[v]", "-map", amap, "-t", f"{total:.3f}", "-r", str(FPS),
-          "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
-          "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(out)], log)
+    if final is not None:
+        enc = ["-t", f"{total:.3f}", "-r", str(FPS), "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+               "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart"]
+    else:   # 중간 결과: 화질 손실을 줄이고 소리는 무압축으로
+        enc = ["-t", f"{total + (cross if tail else 0.0):.3f}", "-r", str(FPS), "-c:v", "libx264",
+               "-preset", "veryfast", "-crf", "14", "-pix_fmt", "yuv420p", "-c:a", "pcm_s16le"]
+    # 한 번에 GROUP개까지만 넘기므로 명령 길이가 윈도우 제한(약 3만 자)을 넘지 않는다
+    _run([*args, "-filter_complex", graph, "-map", "[v]", "-map", amap, *enc, str(out)], log)
+
+
+def _count_inputs(args: list[str]) -> int:
+    return sum(1 for a in args if a == "-i")
+
+
+def _join(clips: list[Path], segs: list[Segment], cross: float, transitions: tuple[str, ...],
+          bgm: Path | None, bgm_volume: float, out: Path, log: Path,
+          on_progress: Callable[[float], None] | None = None) -> None:
+    """조각들을 잇는다. 장면이 많아도(영상 길이 제한 없음) 한 번에 GROUP개씩만 FFmpeg에 넘긴다."""
+    parts = [Part(video=c, duration=s.duration, audio=s.audio,
+                  kind=s.transition or transitions[(i - 1) % len(transitions)])
+             for i, (c, s) in enumerate(zip(clips, segs))]
+    steps = 1
+    k = len(parts)
+    while k > GROUP:
+        k = -(-k // GROUP)
+        steps += k
+    done = 0
+    level = 0
+    while len(parts) > GROUP:
+        merged = []
+        chunks = [parts[i:i + GROUP] for i in range(0, len(parts), GROUP)]
+        for j, chunk in enumerate(chunks):
+            is_last = j == len(chunks) - 1
+            if len(chunk) == 1:
+                merged.append(chunk[0])
+            else:
+                dest = out.parent / f"part_{level}_{j:03d}.mkv"
+                _merge(chunk, cross, dest, log, tail=not is_last)
+                merged.append(Part(video=dest, duration=sum(p.duration for p in chunk), kind=chunk[0].kind, muxed=True))
+            done += 1
+            if on_progress:
+                on_progress(done / steps)
+        parts = merged
+        level += 1
+    _merge(parts, cross, out, log, tail=False, final=(bgm, bgm_volume))
 
 
 def render_video(post: BlogPost, script: VideoScript, options: RenderOptions, workdir: Path,
@@ -255,10 +318,11 @@ def render_video(post: BlogPost, script: VideoScript, options: RenderOptions, wo
     for i, seg in enumerate(segs):
         length = seg.duration + (cross if i < len(segs) - 1 else 0.0)
         clips.append(_segment_clip(i, seg, length, size, workdir, log))
-        report(round(0.75 * (i + 1) / len(segs), 3))
+        report(round(0.7 * (i + 1) / len(segs), 3))
 
     out = workdir / "output.mp4"
-    _join(clips, segs, cross, transitions, resolve_bgm(options.bgm), options.bgm_volume, out, log)
+    _join(clips, segs, cross, transitions, resolve_bgm(options.bgm), options.bgm_volume, out, log,
+          on_progress=lambda p: report(round(0.7 + 0.25 * p, 3)))
     report(0.97)
     try:  # 썸네일은 덤: 실패해도 영상은 살린다
         photo = next((p for s in script.scenes if (p := _photo_for(post, s.image_index))), None)

@@ -74,17 +74,50 @@
           <button type="button" data-value="16:9">가로</button>
           <button type="button" data-value="9:16">세로</button>
         </div>
-        <div class="seg small" data-name="voice">
-          <button type="button" data-value="female">여자</button>
-          <button type="button" data-value="male">남자</button>
-        </div>
         <div class="seg small" data-name="quality">
           <button type="button" data-value="720p">720p</button>
           <button type="button" data-value="1080p">1080p</button>
           <button type="button" data-value="1440p">1440p</button>
         </div>
-        <select id="bgm-edit" aria-label="배경음악"></select>
       </div>
+
+      <fieldset class="field">
+        <legend>성우 목소리</legend>
+        <div class="voice-row">
+          <select id="voice" aria-label="성우 목소리"></select>
+          <button type="button" class="ghost" id="btn-voice-play">미리 듣기</button>
+        </div>
+        <div class="seg small" data-name="speed">
+          <button type="button" data-value="slow">느리게</button>
+          <button type="button" data-value="normal">보통 속도</button>
+          <button type="button" data-value="fast">빠르게</button>
+        </div>
+        <p class="muted">"다국어" 목소리는 한국어 억양이 조금 다를 수 있어요. 미리 듣고 골라 주세요.</p>
+        <audio id="voice-audio" class="hidden"></audio>
+      </fieldset>
+
+      <fieldset class="field">
+        <legend>배경음악</legend>
+        <div class="seg small" data-name="bgm-source">
+          <button type="button" data-value="pick" class="on">샘플·내 음악</button>
+          <button type="button" data-value="youtube">유튜브 링크</button>
+        </div>
+        <div id="bgm-pick" class="voice-row">
+          <select id="bgm-edit" aria-label="배경음악"></select>
+          <button type="button" class="ghost" id="btn-bgm-play">미리 듣기</button>
+        </div>
+        <div id="bgm-youtube" class="hidden">
+          <div class="voice-row">
+            <input id="yt-url" type="url" inputmode="url" autocomplete="off" placeholder="https://www.youtube.com/watch?v=...">
+            <button type="button" class="primary" id="btn-yt-music">음악 가져오기</button>
+          </div>
+          <p class="muted">유튜브 영상의 소리를 그대로 배경음악으로 가져와요. 한 번 가져온 음악은 "샘플·내 음악" 목록에 남아요.</p>
+          <p class="warn-box">⚠️ 직접 만든 음악이나 사용이 허락된 음악(유튜브 오디오 보관함, 저작권 없는 음악 등)만 써 주세요. 허락받지 않은 음악을 넣으면 올린 영상이 차단되거나 수익이 막힐 수 있어요.</p>
+        </div>
+        <p class="ok-text hidden" id="bgm-ok"></p>
+        <p class="error-text hidden" id="bgm-error" role="alert"></p>
+        <audio id="bgm-audio" class="hidden"></audio>
+      </fieldset>
       <div class="edit-options style-options">
         <div class="seg small" data-name="template">
           <button type="button" data-value="clean">깔끔</button>
@@ -110,6 +143,7 @@
       </div>
 
       <h2>장면</h2>
+      <p class="muted" id="scene-summary"></p>
       <details class="source-panel" id="source-panel">
         <summary>블로그 글·사진에서 가져오기</summary>
         <p class="muted">글 한 토막이나 사진을 누르면 그 내용으로 새 장면이 맨 아래에 생겨요.</p>

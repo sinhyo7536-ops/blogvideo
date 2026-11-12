@@ -20,7 +20,7 @@ POST = BlogPost(title="성수동 신상 카페 솔직 후기", url="https://blog
 # ---- AI 없이 자동 대본 -------------------------------------------------------
 def test_auto_script_shape():
     s = auto_script(POST)
-    assert 3 <= len(s.scenes) <= 12
+    assert len(s.scenes) >= 3
     assert POST.title in s.scenes[0].text
     assert s.scenes[-1].text == CLOSING
     assert all(0 < len(x.text) <= 60 for x in s.scenes)
@@ -35,9 +35,15 @@ def test_auto_script_without_images_or_text():
     assert len(s.scenes) >= 2
 
 
-def test_auto_script_caps_scene_count():
-    many = BlogPost(title="t", url="u", images=[], paragraphs=[f"{i}번째 문장입니다." for i in range(80)])
-    assert len(auto_script(many).scenes) <= 12
+def test_auto_script_keeps_the_whole_post():
+    """글 전체가 들어간다: 문장을 골라내지 않고, 장면 수 제한도 없다."""
+    many = BlogPost(title="t", url="u", images=[ImageRef(url=f"u{i}") for i in range(5)],
+                    paragraphs=[f"{i}번째 문장입니다." for i in range(80)])
+    s = auto_script(many)
+    assert len(s.scenes) == 82                      # 제목 + 80문장 + 마무리
+    assert [x.text for x in s.scenes[1:-1]] == [f"{i}번째 문장입니다." for i in range(80)]
+    idx = [x.image_index for x in s.scenes]
+    assert idx == sorted(idx) and set(idx) == {0, 1, 2, 3, 4}   # 사진은 순서대로 고르게
 
 
 # ---- 작업 흐름 ---------------------------------------------------------------

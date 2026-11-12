@@ -16,7 +16,8 @@ async def always_failing_synth(text, voice, out):
 
 
 def test_voices():
-    assert VOICES == {"female": "ko-KR-SunHiNeural", "male": "ko-KR-InJoonNeural"}
+    assert VOICES["female"] == "ko-KR-SunHiNeural" and VOICES["male"] == "ko-KR-InJoonNeural"
+    assert len(VOICES) >= 10
 
 
 def test_synthesize_all_sets_durations(tmp_path, short_script):

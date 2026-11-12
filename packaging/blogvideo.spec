@@ -25,7 +25,8 @@ hiddenimports = (
     + collect_submodules("edge_tts")
     + collect_submodules("anthropic")
     + collect_submodules("google.genai")
-    + ["app.main", "app.render", "app.tts", "app.script", "app.scraper.naver", "truststore", "app.gemini", "app.visuals"]
+    + collect_submodules("yt_dlp")
+    + ["app.main", "app.render", "app.tts", "app.script", "app.scraper.naver", "truststore", "app.gemini", "app.visuals", "app.ytmusic"]
 )
 
 a = Analysis(
