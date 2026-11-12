@@ -54,7 +54,7 @@ def test_settings_allowed_from_localhost(home):
 def test_create_job_without_key_400(home):
     c, m = make_client(home, key="")
     r = c.post("/api/jobs", json={"url": "https://blog.naver.com/a/1", "options": {}})
-    assert r.status_code == 400 and r.json()["message"] == "설정에서 API 키를 입력해 주세요."
+    assert r.status_code == 400 and "API 키가 없어요" in r.json()["message"]
     m.stop()
 
 

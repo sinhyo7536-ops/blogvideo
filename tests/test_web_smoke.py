@@ -27,13 +27,32 @@ def _free_port():
     return p
 
 
-@pytest.fixture
-def live_server(tmp_path, monkeypatch):
+def _start(tmp_path, monkeypatch, api_fails=False):
     monkeypatch.setenv("BLOGVIDEO_HOME", str(tmp_path))
     save_config({"anthropic_api_key": "sk-ant-test1234"})
     steps = fake_steps(delay=0.2)
     steps.api_key = lambda: load_config().get("anthropic_api_key", "")
-    m = JobManager(tmp_path / "jobs", steps)
+    if api_fails:
+        from app.errors import UserError
+
+        def broke(post, key):
+            raise UserError("API 크레딧이 부족해요. Anthropic 콘솔에서 결제 상태를 확인해 주세요.")
+
+        steps.generate_script = broke
+    return JobManager(tmp_path / "jobs", steps)
+
+
+@pytest.fixture
+def live_server_api_fails(tmp_path, monkeypatch):
+    yield from _serve(_start(tmp_path, monkeypatch, api_fails=True))
+
+
+@pytest.fixture
+def live_server(tmp_path, monkeypatch):
+    yield from _serve(_start(tmp_path, monkeypatch))
+
+
+def _serve(m):
     port = _free_port()
     server = uvicorn.Server(uvicorn.Config(create_app(m), host="127.0.0.1", port=port, log_level="warning"))
     t = threading.Thread(target=server.run, daemon=True)
@@ -164,3 +183,50 @@ def test_make_keyed_installer(live_server, browser, tmp_path):
     assert keybundle.read_trailer(open(d.path(), "rb").read()) == "sk-ant-test1234"
     page.wait_for_selector("text=만들었어요")
     shot(page, "d5_keyed")
+
+
+def _start_job(page, base, mode_label):
+    page.goto(base)
+    page.evaluate("localStorage.clear()")
+    page.reload()
+    page.fill("#url", "https://blog.naver.com/a/1")
+    page.click(f"text={mode_label}")
+    page.click("#btn-script")
+
+
+def test_free_auto_flow(live_server, browser):
+    page = browser.new_page(viewport={"width": 390, "height": 844})
+    _start_job(page, live_server, "AI 없이(무료)")
+    page.wait_for_selector(".scene-card", timeout=10000)
+    assert "끝까지 봐 주셔서" in page.input_value(".scene-card textarea >> nth=-1")
+
+
+def test_manual_paste_flow(live_server, browser):
+    page = browser.new_page(viewport={"width": 390, "height": 844})
+    _start_job(page, live_server, "claude.ai 붙여넣기(무료)")
+    page.wait_for_selector("#view-paste:not(.hidden)", timeout=10000)
+    assert "JSON" in page.input_value("#prompt-text")
+    shot(page, "m6_paste")
+    page.fill("#paste-text", '여기요!\n```json\n{"scenes":[{"text":"붙여넣은 장면","image_index":0}],'
+                             '"yt_title":"제목","yt_description":"설명","yt_tags":["태그"]}\n```')
+    page.click("#btn-paste")
+    page.wait_for_selector(".scene-card", timeout=5000)
+    assert page.input_value(".scene-card textarea >> nth=0") == "붙여넣은 장면"
+
+
+def test_manual_paste_bad_text_shows_error(live_server, browser):
+    page = browser.new_page(viewport={"width": 390, "height": 844})
+    _start_job(page, live_server, "claude.ai 붙여넣기(무료)")
+    page.wait_for_selector("#view-paste:not(.hidden)", timeout=10000)
+    page.fill("#paste-text", "엉뚱한 글")
+    page.click("#btn-paste")
+    page.wait_for_selector("text=붙여넣은 내용을 읽지 못했어요", timeout=3000)
+
+
+def test_api_error_offers_free_modes(live_server_api_fails, browser):
+    page = browser.new_page(viewport={"width": 390, "height": 844})
+    _start_job(page, live_server_api_fails, "AI 자동(유료)")
+    page.wait_for_selector("#view-error:not(.hidden)", timeout=10000)
+    shot(page, "m7_error_free")
+    page.click("#btn-free-auto")
+    page.wait_for_selector(".scene-card", timeout=5000)

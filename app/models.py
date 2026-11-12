@@ -51,13 +51,15 @@ class RenderOptions(BaseModel):
         return v
 
 
-Stage = Literal["queued", "scraping", "scripting", "ready", "tts", "rendering", "done", "error"]
+Stage = Literal["queued", "scraping", "scripting", "needs_script", "ready", "tts", "rendering", "done", "error"]
+ScriptMode = Literal["api", "auto", "manual"]
 
 
 class JobState(BaseModel):
     id: str
     url: str
     stage: Stage = "queued"
+    mode: ScriptMode = "api"
     progress: float = 0.0
     message: str = ""
     post: BlogPost | None = None

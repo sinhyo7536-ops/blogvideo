@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Callable
 
 from app.errors import UserError
+from app.autoscript import auto_script
 from app.models import JobState, RenderOptions, VideoScript
 
 log = logging.getLogger(__name__)
@@ -32,6 +33,7 @@ class Steps:
     synthesize_all: Callable
     render_video: Callable
     api_key: Callable[[], str]
+    auto_script: Callable = auto_script
 
 
 class JobManager:
@@ -91,8 +93,8 @@ class JobManager:
         return self.root / job_id
 
     # ---------- 공개 동작 ----------
-    def create(self, url: str, options: RenderOptions) -> JobState:
-        s = JobState(id=uuid.uuid4().hex[:12], url=url, options=options)
+    def create(self, url: str, options: RenderOptions, mode: str = "api") -> JobState:
+        s = JobState(id=uuid.uuid4().hex[:12], url=url, options=options, mode=mode)
         with self._lock:
             self._jobs[s.id] = s
             self._save(s)
@@ -123,6 +125,33 @@ class JobManager:
         s = self._set(job_id, stage="queued", progress=0.0, message="", failed_phase=None)
         self._queue.put((job_id, phase))
         return s
+
+    def prompt(self, job_id: str) -> str:
+        from app.script import build_prompt
+
+        s = self.get(job_id)
+        if s.post is None:
+            raise UserError(NO_SCRIPT)
+        return build_prompt(s.post)
+
+    def paste_script(self, job_id: str, text: str) -> JobState:
+        from app.script import parse_pasted
+
+        s = self.get(job_id)
+        if s.post is None or s.stage in _ACTIVE:
+            raise UserError(BUSY)
+        script = parse_pasted(text, len(s.post.images))
+        return self._set(job_id, script=script, stage="ready", progress=1.0, message="", failed_phase=None)
+
+    def use_free_mode(self, job_id: str, mode: str) -> JobState:
+        """API 대본이 실패했을 때 무료 방법으로 이어서 하기."""
+        s = self.get(job_id)
+        if s.post is None or s.stage in _ACTIVE or mode not in ("auto", "manual"):
+            raise UserError(BUSY)
+        if mode == "auto":
+            return self._set(job_id, mode="auto", script=self.steps.auto_script(s.post), stage="ready",
+                             progress=1.0, message="", failed_phase=None)
+        return self._set(job_id, mode="manual", stage="needs_script", progress=1.0, message="", failed_phase=None)
 
     def cleanup_old(self, days: int = 7) -> int:
         limit = time.time() - days * 86400
@@ -177,8 +206,15 @@ class JobManager:
         post = self.steps.fetch_post(s.url)
         self._set(job_id, progress=0.15)
         post = self.steps.download_images(post, self.dir(job_id) / "images")
+        mode = self.get(job_id).mode
+        if mode == "manual":
+            self._set(job_id, post=post, stage="needs_script", progress=1.0)
+            return
         self._set(job_id, post=post, stage="scripting", progress=0.3)
-        script = self.steps.generate_script(post, self.steps.api_key())
+        if mode == "auto":
+            script = self.steps.auto_script(post)
+        else:
+            script = self.steps.generate_script(post, self.steps.api_key())
         self._set(job_id, script=script, stage="ready", progress=1.0)
 
     def _render(self, job_id: str) -> None:

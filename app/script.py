@@ -60,6 +60,41 @@ def normalize_script(raw: VideoScript, image_count: int) -> VideoScript:
                        yt_description=raw.yt_description.strip(), yt_tags=tags)
 
 
+PASTE_BAD = "붙여넣은 내용을 읽지 못했어요. claude.ai 답변 전체를 복사해서 다시 붙여넣어 주세요."
+
+_FORMAT = """반드시 아래 JSON 형식으로만 답하세요. 다른 설명은 쓰지 마세요.
+{
+  "scenes": [{"text": "장면 자막(성우가 읽을 문장)", "image_index": 0}],
+  "yt_title": "유튜브 제목",
+  "yt_description": "유튜브 설명",
+  "yt_tags": ["태그1", "태그2"]
+}"""
+
+
+def build_prompt(post: BlogPost) -> str:
+    """claude.ai에 붙여넣을 질문 (무료 방법)."""
+    return f"{SYSTEM}\n\n{_FORMAT}\n\n---\n{_user_message(post)}"
+
+
+def parse_pasted(text: str, image_count: int) -> VideoScript:
+    """claude.ai 답변(설명·코드 블록이 섞여 있어도)에서 대본 JSON을 꺼낸다."""
+    import json
+
+    start, end = (text or "").find("{"), (text or "").rfind("}")
+    if start < 0 or end <= start:
+        raise UserError(PASTE_BAD)
+    try:
+        draft = ScriptDraft.model_validate(json.loads(text[start:end + 1]))
+    except ValueError as e:
+        raise UserError(PASTE_BAD) from e
+    raw = VideoScript(scenes=[Scene(text=s.text, image_index=s.image_index) for s in draft.scenes],
+                      yt_title=draft.yt_title, yt_description=draft.yt_description, yt_tags=draft.yt_tags)
+    result = normalize_script(raw, image_count)
+    if not result.scenes:
+        raise UserError(PASTE_BAD)
+    return result
+
+
 def _user_message(post: BlogPost) -> str:
     paras = "\n".join(f"[{i + 1}] {p}" for i, p in enumerate(post.paragraphs))
     return (f"제목: {post.title}\n원문 링크: {post.url}\n사진 개수: {len(post.images)}\n\n"

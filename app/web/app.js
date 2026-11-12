@@ -1,7 +1,13 @@
 "use strict";
 
 const $ = (id) => document.getElementById(id);
-const VIEWS = ["home", "edit", "progress", "result", "error", "settings"];
+const VIEWS = ["home", "edit", "paste", "progress", "result", "error", "settings"];
+const MODE_KEY = "blogvideo.mode";
+const MODE_HELP = {
+  api: "Claude API로 자연스러운 대본을 자동으로 써요. 영상 1개당 약 100~200원이 들어요.",
+  auto: "블로그 문장을 프로그램이 장면으로 나눠요. 무료예요. 다음 화면에서 자막을 다듬어 주세요.",
+  manual: "claude.ai(무료 계정도 가능)에 질문을 붙여넣고, 받은 답을 다시 붙여넣어요. 무료예요.",
+};
 const STAGE_LABEL = {
   queued: "순서를 기다리는 중",
   scraping: "글 읽는 중",
@@ -73,16 +79,24 @@ document.querySelectorAll(".seg").forEach((seg) => {
     const b = e.target.closest("button");
     if (!b) return;
     setSeg(seg.dataset.name, b.dataset.value);
+    if (seg.dataset.name === "mode") setMode(b.dataset.value);
   });
 });
+
+function setMode(mode) {
+  setSeg("mode", mode);
+  localStorage.setItem(MODE_KEY, mode);
+  $("mode-help").textContent = MODE_HELP[mode] || "";
+}
 
 // ---------- 초기화 ----------
 async function loadInfo() {
   state.info = await api("GET", "/api/info");
   $("open-settings").classList.toggle("hidden", !state.info.is_local);
   const notice = $("key-notice");
+  setMode(localStorage.getItem(MODE_KEY) || (state.info.has_api_key ? "api" : "auto"));
   if (!state.info.has_api_key) {
-    notice.textContent = "처음 한 번, 설정에서 Claude API 키를 입력해 주세요.";
+    notice.textContent = "API 키가 없어도 무료 방법(AI 없이 / claude.ai 붙여넣기)으로 쓸 수 있어요. 유료 'AI 자동'은 설정에서 키를 넣어야 해요.";
     if (state.info.is_local) {
       const b = document.createElement("button");
       b.type = "button";
@@ -119,6 +133,7 @@ function routeJob(job) {
   localStorage.setItem(STORE_KEY, job.id);
   stopPoll();
   if (job.stage === "ready") return openEdit(job);
+  if (job.stage === "needs_script") return openPaste(job);
   if (job.stage === "done") return openResult(job);
   if (job.stage === "error") return openError(job);
   openProgress(job);
@@ -155,11 +170,56 @@ async function startScript() {
   const btn = $("btn-script");
   btn.disabled = true;
   try {
-    routeJob(await api("POST", "/api/jobs", { url, options: currentOptions() }));
+    routeJob(await api("POST", "/api/jobs", { url, options: currentOptions(), mode: segValue("mode") || "auto" }));
   } catch (e) {
     setError("home-error", e.message);
   } finally {
     btn.disabled = false;
+  }
+}
+
+// ---------- claude.ai 붙여넣기 (무료) ----------
+async function openPaste(job) {
+  setError("paste-error", "");
+  if (state.pasteFor !== job.id) {
+    $("paste-text").value = "";
+    state.pasteFor = job.id;
+  }
+  $("btn-copy-prompt").disabled = true;
+  try {
+    $("prompt-text").value = (await api("GET", `/api/jobs/${job.id}/prompt`)).prompt;
+    $("btn-copy-prompt").disabled = false;
+  } catch (e) {
+    setError("paste-error", e.message);
+  }
+  show("paste");
+}
+
+async function copyPrompt() {
+  const ok = await copyText($("prompt-text").value);
+  toast(ok ? "질문을 복사했어요. claude.ai 채팅창에 붙여넣으세요." : "복사하지 못했어요. '복사되는 질문 보기'에서 직접 복사해 주세요.");
+}
+
+async function submitPaste() {
+  setError("paste-error", "");
+  const text = $("paste-text").value.trim();
+  if (!text) return setError("paste-error", "claude.ai 답변을 붙여넣어 주세요.");
+  const btn = $("btn-paste");
+  btn.disabled = true;
+  try {
+    routeJob(await api("POST", `/api/jobs/${state.job.id}/paste`, { text }));
+  } catch (e) {
+    setError("paste-error", e.message);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function useFreeMode(mode) {
+  try {
+    routeJob(await api("POST", `/api/jobs/${state.job.id}/free-mode`, { mode }));
+  } catch (e) {
+    $("error-message").textContent = e.message;
   }
 }
 
@@ -373,6 +433,8 @@ document.querySelectorAll("[data-copy]").forEach((b) => {
 // ---------- 오류 ----------
 function openError(job) {
   $("error-message").textContent = job.message || "알 수 없는 오류가 났어요. 다시 시도해 주세요.";
+  const canFree = !!job.post && job.failed_phase === "prepare" && job.mode === "api";
+  $("free-options").classList.toggle("hidden", !canFree);
   show("error");
 }
 
@@ -502,9 +564,9 @@ $("btn-new").onclick = () => goHome(true);
 $("btn-retry").onclick = retry;
 $("btn-error-home").onclick = () => goHome(true);
 $("go-home").onclick = () => {
-  const busy = state.job && !["ready", "done", "error"].includes(state.job.stage);
+  const busy = state.job && !["ready", "needs_script", "done", "error"].includes(state.job.stage);
   if (busy) return routeJob(state.job); // 만드는 중이면 진행 화면으로
-  if (state.view === "edit" && !confirm("지금 대본을 그만두고 처음 화면으로 갈까요?")) return;
+  if ((state.view === "edit" || state.view === "paste") && !confirm("지금 대본을 그만두고 처음 화면으로 갈까요?")) return;
   goHome(true);
 };
 $("open-settings").onclick = openSettings;
@@ -512,6 +574,10 @@ $("btn-save-key").onclick = saveKey;
 $("music-file").addEventListener("change", uploadMusic);
 $("btn-settings-back").onclick = leaveSettings;
 $("btn-keyed").onclick = makeKeyedInstaller;
+$("btn-copy-prompt").onclick = copyPrompt;
+$("btn-paste").onclick = submitPaste;
+$("btn-free-auto").onclick = () => useFreeMode("auto");
+$("btn-free-manual").onclick = () => useFreeMode("manual");
 $("picker-close").onclick = () => $("picker").close();
 
 (async function init() {
