@@ -4,6 +4,7 @@ from __future__ import annotations
 import re
 
 from app.models import BlogPost, Scene, VideoScript
+from app.script import short_title
 
 MAX_SCENES = 12
 MAX_LEN = 60
@@ -72,4 +73,4 @@ def auto_script(post: BlogPost) -> VideoScript:
     desc = (first[:200] + ("…" if len(first) > 200 else "")).strip()
     return VideoScript(scenes=scenes, yt_title=title[:60],
                        yt_description=(desc + "\n\n" if desc else "") + f"원문: {post.url}",
-                       yt_tags=_tags(title))
+                       yt_tags=_tags(title), intro_title=short_title(title))

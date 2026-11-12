@@ -25,7 +25,7 @@ def _video(tmp_path, options, seconds=3.0):
     audio = make_silence(tmp_path / "a.mp3", seconds - 0.4)
     script = VideoScript(scenes=[Scene(text="", image_index=0, duration=seconds, audio_path=str(audio))],
                          yt_title="t", yt_description="d", yt_tags=[])
-    return render_video(post, script, options, tmp_path / "w")
+    return render_video(post, script, options.model_copy(update={"intro": False, "outro": False}), tmp_path / "w")
 
 
 def _patch_motion(video: Path, w: int, h: int, n=60):

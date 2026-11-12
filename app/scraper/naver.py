@@ -83,7 +83,10 @@ def extract_post(html: str, url: str) -> BlogPost:
             images.append(ImageRef(url=_hires(src)))
     if not paragraphs and not images:
         raise UserError(UNREADABLE)
-    return BlogPost(title=title, paragraphs=paragraphs, images=images, url=url)
+    site = soup.find("meta", property="og:site_name")
+    blog_name = _clean(site.get("content") or "") if site else ""
+    blog_name = blog_name.split("|")[-1].strip()  # "네이버 블로그 | 이름" → "이름"
+    return BlogPost(title=title, paragraphs=paragraphs, images=images, url=url, blog_name=blog_name)
 
 
 def _client() -> httpx.Client:

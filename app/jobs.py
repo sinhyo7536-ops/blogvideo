@@ -34,7 +34,7 @@ class Steps:
     render_video: Callable
     api_key: Callable[[], str]
     auto_script: Callable = auto_script
-    # [임시] Gemini 무료 API
+    channel_name: Callable[[], str] = lambda: ""   # 설정의 채널 이름 (비면 블로그 이름)
     gemini_script: Callable | None = None
     gemini_key: Callable[[], str] = lambda: ""
 
@@ -199,7 +199,7 @@ class JobManager:
         mode = self.get(job_id).mode
         if mode == "auto":
             script = self.steps.auto_script(post)
-        elif mode == "gemini":  # [임시]
+        elif mode == "gemini":
             script = self.steps.gemini_script(post, self.steps.gemini_key())
         else:
             script = self.steps.generate_script(post, self.steps.api_key())
@@ -210,6 +210,8 @@ class JobManager:
         script = self.steps.synthesize_all(s.script, s.options.voice, self.dir(job_id) / "audio",
                                            on_progress=lambda p: self._set(job_id, progress=round(0.2 * p, 3)))
         self._set(job_id, script=script, stage="rendering", progress=0.2)
-        out = self.steps.render_video(s.post, script, s.options, self.dir(job_id) / "render",
+        channel = (self.steps.channel_name() or s.post.blog_name or "").strip()[:40]
+        options = s.options.model_copy(update={"channel": channel})
+        out = self.steps.render_video(s.post, script, options, self.dir(job_id) / "render",
                                       on_progress=lambda p: self._set(job_id, progress=round(0.2 + 0.8 * p, 3)))
         self._set(job_id, stage="done", progress=1.0, video_path=str(out), finished_at=time.time())

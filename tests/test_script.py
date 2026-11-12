@@ -97,3 +97,64 @@ def test_generate_connection_error_message(sample_post):
 def test_generate_without_key(sample_post):
     with pytest.raises(UserError, match="API 키"):
         generate_script(sample_post, "")
+
+
+# ---------- 여행 영상: 장소 이름, 시작 화면 제목 ----------
+TRIP = ScriptDraft(scenes=[SceneDraft(text="통영에 다녀왔어요", image_index=0, place="  통영   동피랑 "),
+                           SceneDraft(text="끝", image_index=1)],
+                   yt_title="제목", yt_description="설명", yt_tags=["a"],
+                   intro_title="통영 1박 2일 여행", intro_sub="가을 · 친구와")
+
+
+def test_generate_keeps_place_and_intro(sample_post):
+    s = generate_script(sample_post, "k", client=FakeClient([resp(TRIP)]))
+    assert [x.place for x in s.scenes] == ["통영 동피랑", ""]
+    assert (s.intro_title, s.intro_sub) == ("통영 1박 2일 여행", "가을 · 친구와")
+
+
+def test_intro_title_falls_back_to_post_title(sample_post):
+    s = generate_script(sample_post, "k", client=FakeClient([resp(GOOD)]))
+    assert s.intro_title == "제목" and s.intro_sub == ""
+
+
+def test_prompt_asks_for_travel_fields():
+    from app.script import SYSTEM
+
+    assert "여행" in SYSTEM and "place" in SYSTEM and "intro_title" in SYSTEM
+
+
+def test_auto_script_has_intro_title(sample_post):
+    from app.autoscript import auto_script
+
+    s = auto_script(sample_post)
+    assert s.intro_title == "제목" and all(x.place == "" for x in s.scenes)
+
+
+def test_blog_name_is_read_from_post():
+    from pathlib import Path
+
+    from app.scraper.naver import extract_post
+
+    html = (Path(__file__).parent / "fixtures" / "naver_post.html").read_text("utf-8")
+    assert extract_post(html, "u").blog_name
+
+
+@pytest.mark.parametrize("title,expected", [
+    ("통영 1박 2일 여행", "통영 1박 2일 여행"),
+    ("[국내여행] 통영 1박 2일 여행 - 동피랑, 중앙시장 후기", "통영 1박 2일 여행"),
+    ("(내돈내산)[경남] 통영 여행 | 먹방 코스", "통영 여행"),
+    ("가을에 다녀온 통영 동피랑 벽화마을과 중앙시장 그리고 케이블카", "가을에 다녀온 통영 동피랑 벽화마을과…"),
+])
+def test_short_title(title, expected):
+    from app.script import short_title
+
+    assert short_title(title) == expected
+    assert len(short_title(title)) <= 23
+
+
+def test_blog_name_drops_naver_prefix():
+    from app.scraper.naver import extract_post
+
+    html = ('<meta property="og:site_name" content="네이버 블로그 | 신효의 여행노트">'
+            '<div class="se-main-container"><p class="se-text-paragraph">본문</p></div>')
+    assert extract_post(html, "u").blog_name == "신효의 여행노트"

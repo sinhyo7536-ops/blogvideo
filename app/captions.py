@@ -74,7 +74,11 @@ def _layout(text: str, max_w: int, size: int, min_size: int = MIN_SIZE) -> tuple
         size -= max(2, size // 18)
 
 
-def render_caption_png(text: str, width: int, height: int, out: Path) -> Path:
+def render_caption_png(text: str, width: int, height: int, out: Path, template: str = "clean") -> Path:
+    """자막 PNG. template: clean(검은 상자) / mood(상자 없이 그림자) / vlog(노란 형광펜)."""
+    from app.visuals import template as get_template
+
+    tpl = get_template(template)
     text = supported_text(text)
     vertical = height > width
     k = min(width, height) / 1080  # 화질(720p/1080p/1440p)에 맞춰 비율 유지
@@ -94,11 +98,32 @@ def render_caption_png(text: str, width: int, height: int, out: Path) -> Path:
         widest = max(font.getlength(l) for l in lines)
         box_w = min(max_w, int(widest) + pad * 2 + round(20 * k))
         left = (width - box_w) // 2
-        d.rounded_rectangle([left, top, left + box_w, bottom], radius=int(size * 0.3), fill=(0, 0, 0, 160))
+        stroke = max(2, round(4 * k))
+        if tpl.caption == "box":
+            d.rounded_rectangle([left, top, left + box_w, bottom], radius=int(size * 0.3), fill=(0, 0, 0, 160))
+        elif tpl.caption == "plain":  # 상자 없이: 아래쪽을 살짝 어둡게 + 가는 강조 선
+            shade = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+            sd = ImageDraw.Draw(shade)
+            g_top = max(0, top - line_h)
+            for y in range(g_top, height):
+                sd.line([(0, y), (width, y)], fill=(0, 0, 0, int(150 * (y - g_top) / max(1, height - g_top))))
+            im = Image.alpha_composite(im, shade)
+            d = ImageDraw.Draw(im)
+            line_w = int(widest * 0.35)
+            y = bottom - pad // 3
+            d.line([(width // 2 - line_w // 2, y), (width // 2 + line_w // 2, y)], fill=tpl.accent + (255,),
+                   width=max(2, round(3 * k)))
         for i, line in enumerate(lines):
             y = top + pad + i * line_h + line_h // 2
-            d.text((width // 2, y), line, font=font, fill="white", anchor="mm",
-                   stroke_width=max(2, round(4 * k)), stroke_fill="black")
+            if tpl.caption == "highlight":  # 줄마다 형광펜 상자
+                lw = font.getlength(line)
+                d.rounded_rectangle([width // 2 - lw / 2 - pad * 0.7, y - line_h * 0.46,
+                                     width // 2 + lw / 2 + pad * 0.7, y + line_h * 0.46],
+                                    radius=int(size * 0.18), fill=tpl.accent + (245,))
+                d.text((width // 2, y), line, font=font, fill=tpl.accent_text, anchor="mm")
+            else:
+                d.text((width // 2, y), line, font=font, fill="white", anchor="mm",
+                       stroke_width=stroke, stroke_fill="black")
     out.parent.mkdir(parents=True, exist_ok=True)
     im.save(out)
     return out

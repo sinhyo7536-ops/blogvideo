@@ -14,10 +14,11 @@
 | `app/scraper/naver.py` | 네이버 블로그 글 제목·문단·사진 추출, 사진 다운로드 |
 | `app/script.py` | Claude API(`claude-opus-5-5`, 구조화 출력)로 장면 대본 + 유튜브 제목/설명/태그 생성 |
 | `app/autoscript.py` | AI 없이 블로그 문장을 장면으로 나누기 (무료) |
-| `app/gemini.py` | **[임시]** Gemini 무료 API 대본. 제거 시 이 파일과 코드의 `[임시]` 표시 부분을 지운다 |
+| `app/gemini.py` | Gemini 무료 API로 장면 대본 생성 (Claude와 같은 프롬프트·형식) |
+| `app/visuals.py` | 영상 스타일 3종(깔끔/감성/브이로그), 제목 띠·장소 이름표, 시작·끝 화면, 썸네일 |
 | `app/tts.py` | Edge TTS로 장면별 내레이션 (`ko-KR-SunHiNeural` / `ko-KR-InJoonNeural`) |
 | `app/captions.py` | Pillow로 자막 PNG 생성 (줄바꿈, 외곽선) |
-| `app/render.py` | FFmpeg로 장면 클립(확대 효과·자막·페이드) → 합치기 → 배경음악 믹스 |
+| `app/render.py` | FFmpeg로 장면 조각(사진 확대·이동, 제목 띠, 떠오르는 자막) → 전환 효과(xfade)로 잇기 → 목소리·배경음악 → 썸네일 |
 | `app/jobs.py` | 작업 큐(한 번에 하나), 상태 저장, 재시도 |
 | `app/main.py` | FastAPI 라우트, 이 PC·이 화면에서 온 요청만 허용 (Host/Origin 검사) |
 | `app/config.py`, `app/secret.py` | 설정 저장, API 키 DPAPI 암호화 |

@@ -70,20 +70,21 @@ def default_steps() -> Steps:
     from app.render import render_video
     from app.scraper.naver import download_images, fetch_post
     from app.script import generate_script
-    from app.gemini import generate_script_gemini  # [임시]
+    from app.gemini import generate_script_gemini
     from app.tts import synthesize_all
 
     return Steps(fetch_post=fetch_post, download_images=download_images, generate_script=generate_script,
                  synthesize_all=synthesize_all, render_video=render_video,
                  api_key=lambda: config.load_config().get("anthropic_api_key", ""),
                  gemini_script=generate_script_gemini,
+                 channel_name=lambda: config.load_config().get("channel_name", ""),
                  gemini_key=lambda: config.load_config().get("gemini_api_key", ""))
 
 
 class CreateJob(BaseModel):
     url: str
     options: RenderOptions = RenderOptions()
-    mode: Literal["api", "auto", "gemini"] = "api"  # gemini: [임시]
+    mode: Literal["api", "auto", "gemini"] = "api"
 
 
 class FreeMode(BaseModel):
@@ -97,7 +98,8 @@ class UpdateScript(BaseModel):
 
 class Settings(BaseModel):
     anthropic_api_key: str | None = None
-    gemini_api_key: str | None = None  # [임시]
+    gemini_api_key: str | None = None
+    channel_name: str | None = None
 
 
 def _is_local(request: Request) -> bool:
@@ -109,11 +111,19 @@ def _public(s: JobState) -> dict:
     """같은 와이파이의 기기에 보내는 상태. PC의 파일 경로(사용자 이름 포함)는 빼고 보낸다."""
     d = s.model_dump(exclude={"video_path"})
     d["has_video"] = bool(s.video_path)
+    d["has_thumbnail"] = bool(_thumbnail_path(s))
     if d.get("post"):
         d["post"]["images"] = [{"url": i["url"]} for i in d["post"]["images"]]
     if d.get("script"):
         d["script"]["scenes"] = [{k: v for k, v in sc.items() if k != "audio_path"} for sc in d["script"]["scenes"]]
     return d
+
+
+def _thumbnail_path(s: JobState) -> Path | None:
+    if not s.video_path:
+        return None
+    p = Path(s.video_path).parent / "thumbnail.jpg"
+    return p if p.exists() else None
 
 
 def _mask(key: str) -> str:
@@ -191,7 +201,7 @@ def create_app(manager: JobManager | None = None) -> FastAPI:
     def info(request: Request):
         cfg = config.load_config()
         return {"has_api_key": bool(cfg.get("anthropic_api_key")),
-                "has_gemini_key": bool(cfg.get("gemini_api_key")),  # [임시]
+                "has_gemini_key": bool(cfg.get("gemini_api_key")),
                 "is_local": _is_local(request)}
 
     @app.post("/api/jobs")
@@ -199,7 +209,7 @@ def create_app(manager: JobManager | None = None) -> FastAPI:
         url = validate_url(body.url)
         if body.mode == "api" and not manager.steps.api_key():
             raise UserError(NO_KEY)
-        if body.mode == "gemini" and not manager.steps.gemini_key():  # [임시]
+        if body.mode == "gemini" and not manager.steps.gemini_key():
             from app.gemini import NO_KEY as GEMINI_NO_KEY
 
             raise UserError(GEMINI_NO_KEY)
@@ -242,6 +252,19 @@ def create_app(manager: JobManager | None = None) -> FastAPI:
             title = _safe_filename(s.script.yt_title if s.script else "영상")
             headers["Content-Disposition"] = f"attachment; filename=\"video.mp4\"; filename*=UTF-8''{quote(title + '.mp4')}"
         return FileResponse(s.video_path, media_type="video/mp4", headers=headers)
+
+    @app.get("/api/jobs/{job_id}/thumbnail")
+    def thumbnail(job_id: str, download: int = 0):
+        s = manager.get(job_id)
+        p = _thumbnail_path(s)
+        if p is None:
+            return JSONResponse({"message": "아직 썸네일이 없어요."}, status_code=404)
+        headers = {"Cache-Control": "no-cache"}
+        if download:
+            title = _safe_filename(s.script.yt_title if s.script else "썸네일")
+            name = quote(title + "_썸네일.jpg")
+            headers["Content-Disposition"] = f"attachment; filename=\"thumbnail.jpg\"; filename*=UTF-8''{name}"
+        return FileResponse(p, media_type="image/jpeg", headers=headers)
 
     @app.get("/api/music")
     def music():
@@ -286,7 +309,7 @@ def create_app(manager: JobManager | None = None) -> FastAPI:
         if (r := pc_only(request)) is not None:
             return r
         cfg = config.load_config()
-        return {k: _mask(cfg.get(k, "")) for k in config.SECRET_KEYS}
+        return {**{k: _mask(cfg.get(k, "")) for k in config.SECRET_KEYS}, "channel_name": cfg.get("channel_name", "")}
 
     @app.put("/api/settings")
     def put_settings(request: Request, body: Settings):
@@ -297,7 +320,9 @@ def create_app(manager: JobManager | None = None) -> FastAPI:
             v = getattr(body, k)
             if v and v.strip():
                 data[k] = v.strip()
+        if body.channel_name is not None:  # 빈 칸으로 저장하면 지움(블로그 이름을 대신 씀)
+            data["channel_name"] = " ".join(body.channel_name.split())[:40]
         config.save_config(data)
-        return {k: _mask(data.get(k, "")) for k in config.SECRET_KEYS}
+        return {**{k: _mask(data.get(k, "")) for k in config.SECRET_KEYS}, "channel_name": data.get("channel_name", "")}
 
     return app

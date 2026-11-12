@@ -20,7 +20,7 @@
     <!-- 1. 링크 입력 -->
     <section id="view-home" class="view hidden">
       <h1>블로그 글로 영상 만들기</h1>
-      <p class="muted">네이버 블로그 글 주소를 넣으면 사진·자막·목소리가 들어간 영상을 만들어 드려요.</p>
+      <p class="muted">네이버 블로그에 쓴 여행 글 주소를 넣으면 사진·자막·목소리가 들어간 여행 영상을 만들어 드려요.</p>
 
       <label class="field">
         <span>네이버 블로그 글 주소</span>
@@ -31,11 +31,28 @@
         <legend>대본 만드는 방법</legend>
         <div class="seg stack" data-name="mode">
           <button type="button" data-value="api" class="on">Claude(유료)</button>
-          <!-- [임시] Gemini 무료 API -->
           <button type="button" data-value="gemini">Gemini(무료)</button>
           <button type="button" data-value="auto">AI 없이(무료)</button>
         </div>
         <p class="muted" id="mode-help"></p>
+      </fieldset>
+
+      <fieldset class="field">
+        <legend>영상 스타일</legend>
+        <div class="seg" data-name="template">
+          <button type="button" data-value="clean" class="on">깔끔</button>
+          <button type="button" data-value="mood">감성</button>
+          <button type="button" data-value="vlog">브이로그</button>
+        </div>
+        <p class="muted" id="template-help"></p>
+      </fieldset>
+
+      <fieldset class="field">
+        <legend>화면 전환·사진 움직임</legend>
+        <div class="seg" data-name="effects">
+          <button type="button" data-value="auto" class="on">다양하게</button>
+          <button type="button" data-value="soft">부드럽게</button>
+        </div>
       </fieldset>
 
       <fieldset class="field">
@@ -92,6 +109,30 @@
         </div>
         <select id="bgm-edit" aria-label="배경음악"></select>
       </div>
+      <div class="edit-options style-options">
+        <div class="seg small" data-name="template">
+          <button type="button" data-value="clean">깔끔</button>
+          <button type="button" data-value="mood">감성</button>
+          <button type="button" data-value="vlog">브이로그</button>
+        </div>
+        <div class="seg small" data-name="effects">
+          <button type="button" data-value="auto">전환 다양하게</button>
+          <button type="button" data-value="soft">부드럽게</button>
+        </div>
+      </div>
+
+      <h2>시작 화면과 제목 띠</h2>
+      <label class="field"><span>여행 제목 <small class="muted">시작 화면·왼쪽 위 제목 띠·썸네일에 들어가요</small></span>
+        <input id="intro-title" maxlength="30" placeholder="예: 통영 1박 2일 여행"></label>
+      <label class="field"><span>시작 화면 둘째 줄 <small class="muted">비워 두어도 돼요</small></span>
+        <input id="intro-sub" maxlength="40" placeholder="예: 2026년 가을 · 친구와 함께"></label>
+      <div class="checks">
+        <label><input type="checkbox" id="opt-intro"> 시작 화면 넣기</label>
+        <label><input type="checkbox" id="opt-outro"> 끝 화면 넣기</label>
+        <label><input type="checkbox" id="opt-title-bar"> 제목 띠·장소 이름표 넣기</label>
+      </div>
+
+      <h2>장면</h2>
       <ol id="scenes" class="scenes"></ol>
       <button type="button" class="ghost" id="btn-add-scene">+ 장면 추가</button>
 
@@ -121,6 +162,12 @@
       <h1>영상이 완성됐어요!</h1>
       <video id="video" controls playsinline preload="metadata"></video>
       <a class="primary big as-btn" id="btn-download" download>영상 저장</a>
+      <div class="thumb-box hidden" id="thumb-box">
+        <h2>썸네일</h2>
+        <img id="thumb-img" alt="자동으로 만든 썸네일">
+        <a class="ghost as-btn" id="btn-thumb" download>썸네일 저장</a>
+        <p class="muted">유튜브에 영상을 올릴 때 '미리보기 이미지'로 이 파일을 고르면 돼요.</p>
+      </div>
       <p class="muted">저장한 영상을 유튜브 앱에서 올리고, 복사한 제목·설명·태그를 붙여 넣으세요.</p>
       <div class="copy-list">
         <div class="copy-item"><div><b>제목</b><p id="out-title"></p></div><button type="button" data-copy="out-title">제목 복사</button></div>
@@ -160,7 +207,6 @@
       <button type="button" class="primary" id="btn-save-key">저장</button>
       <p class="ok-text hidden" id="settings-ok">저장했어요</p>
 
-      <!-- [임시] Gemini 무료 API -->
       <label class="field">
         <span>Gemini API 키 (무료)</span>
         <input id="gemini-key" type="password" autocomplete="off" placeholder="AIza...">
@@ -169,6 +215,15 @@
       </label>
       <button type="button" class="primary" id="btn-save-gemini">Gemini 키 저장</button>
       <p class="ok-text hidden" id="gemini-ok">저장했어요</p>
+
+      <h2>채널 이름</h2>
+      <label class="field">
+        <span>내 유튜브 채널 이름</span>
+        <input id="channel-name" maxlength="40" autocomplete="off" placeholder="예: 신효의 여행노트">
+        <small class="muted">끝 화면과 썸네일에 들어가요. 비워 두면 블로그 이름을 대신 써요.</small>
+      </label>
+      <button type="button" class="primary" id="btn-save-channel">채널 이름 저장</button>
+      <p class="ok-text hidden" id="channel-ok">저장했어요</p>
 
       <h2>배경음악 추가</h2>
       <p class="muted">사용 허락이 확인된 MP3만 올려 주세요. (예: 유튜브 스튜디오 오디오 보관함)</p>

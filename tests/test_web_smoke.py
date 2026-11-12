@@ -274,3 +274,90 @@ def test_page_sends_heartbeat_and_bye(tmp_path, monkeypatch, browser):
         server.should_exit = True
         t.join(5)
         m.stop()
+
+
+# ---------- 여행 영상 기능 ----------
+def _job(page):
+    return page.evaluate("fetch('/api/jobs/' + localStorage.getItem('blogvideo.jobId')).then(r => r.json())")
+
+
+def test_template_and_effects_are_sent(live_server, browser):
+    page = browser.new_page(viewport={"width": 1280, "height": 800})
+    page.goto(live_server)
+    page.fill("#url", "https://blog.naver.com/a/1")
+    page.click('#view-home .seg[data-name="template"] button[data-value="vlog"]')
+    assert "형광펜" in page.inner_text("#template-help")
+    page.click('#view-home .seg[data-name="effects"] button[data-value="soft"]')
+    page.click("button:has-text('대본 만들기')")
+    page.wait_for_selector(".scene-card", timeout=10000)
+    job = _job(page)
+    assert (job["options"]["template"], job["options"]["effects"]) == ("vlog", "soft")
+    assert page.locator('#view-edit .seg[data-name="template"] button.on').inner_text() == "브이로그"
+
+
+def test_place_intro_and_toggles_are_saved(live_server, browser):
+    page = browser.new_page(viewport={"width": 390, "height": 844})
+    _to_edit(page, live_server)
+    assert page.is_checked("#opt-intro") and page.is_checked("#opt-outro") and page.is_checked("#opt-title-bar")
+    page.fill(".scene-card input.place >> nth=0", "통영 동피랑")
+    page.fill("#intro-title", "통영 1박 2일 여행")
+    page.fill("#intro-sub", "가을 · 친구와")
+    page.uncheck("#opt-outro")
+    page.click('#view-edit .seg[data-name="template"] button[data-value="mood"]')
+    assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+    page.click("button:has-text('영상 만들기')")
+    page.wait_for_selector("#view-result:not(.hidden)", timeout=10000)
+    job = _job(page)
+    assert job["script"]["scenes"][0]["place"] == "통영 동피랑"
+    assert (job["script"]["intro_title"], job["script"]["intro_sub"]) == ("통영 1박 2일 여행", "가을 · 친구와")
+    assert (job["options"]["intro"], job["options"]["outro"], job["options"]["template"]) == (True, False, "mood")
+    # 다시 고치러 가면 입력한 값이 그대로
+    page.click("#btn-reedit")
+    page.wait_for_selector("#view-edit:not(.hidden)")
+    assert page.input_value(".scene-card input.place >> nth=0") == "통영 동피랑"
+    assert not page.is_checked("#opt-outro")
+
+
+def test_thumbnail_shown_when_made(tmp_path, monkeypatch, browser):
+    from PIL import Image
+
+    m = _start(tmp_path, monkeypatch)
+    real = m.steps.render_video
+
+    def render(post, script, options, workdir, on_progress=None):
+        out = real(post, script, options, workdir, on_progress)
+        Image.new("RGB", (1280, 720), "orange").save(workdir / "thumbnail.jpg")
+        return out
+
+    m.steps.render_video = render
+    for base in _serve(m):
+        page = browser.new_page(viewport={"width": 1280, "height": 800})
+        _to_edit(page, base)
+        page.click("button:has-text('영상 만들기')")
+        page.wait_for_selector("#thumb-box:not(.hidden)", timeout=10000)
+        page.wait_for_function("document.getElementById('thumb-img').naturalWidth === 1280")
+        assert "thumbnail?download=1" in page.get_attribute("#btn-thumb", "href")
+        page.close()
+
+
+def test_no_thumbnail_box_without_thumbnail(live_server, browser):
+    page = browser.new_page(viewport={"width": 1280, "height": 800})
+    _to_edit(page, live_server)
+    page.click("button:has-text('영상 만들기')")
+    page.wait_for_selector("#view-result:not(.hidden)", timeout=10000)
+    assert not page.is_visible("#thumb-box")
+
+
+def test_channel_name_saved_in_settings(live_server, browser):
+    page = browser.new_page(viewport={"width": 1280, "height": 800})
+    page.goto(live_server)
+    page.click("#open-settings")
+    page.wait_for_selector("#channel-name")
+    page.fill("#channel-name", "신효의 여행노트")
+    page.click("#btn-save-channel")
+    page.wait_for_selector("#channel-ok:not(.hidden)")
+    assert load_config()["channel_name"] == "신효의 여행노트"
+    assert load_config()["anthropic_api_key"] == "sk-ant-test1234"   # 키는 그대로
+    page.reload()
+    page.click("#open-settings")
+    page.wait_for_function("document.getElementById('channel-name').value === '신효의 여행노트'")

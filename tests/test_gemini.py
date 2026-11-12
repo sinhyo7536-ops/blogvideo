@@ -1,4 +1,4 @@
-"""[임시] Gemini 무료 API로 대본 만들기. Claude로 돌아갈 때 이 파일과 app/gemini.py를 지운다."""
+"""Gemini 무료 API로 대본 만들기 (Claude와 함께 쓰는 정식 기능)."""
 import json
 from types import SimpleNamespace
 
@@ -8,7 +8,7 @@ from google.genai import errors
 
 from app import config, keybundle
 from app.errors import UserError
-from app.gemini import MODELS, generate_script_gemini
+from app.gemini import MODELS, SCHEMA, generate_script_gemini
 from app.jobs import JobManager
 from app.main import create_app
 from app.models import BlogPost, ImageRef, RenderOptions
@@ -198,3 +198,15 @@ def test_client_has_request_timeout(monkeypatch):
     monkeypatch.setattr(g.genai, "Client", FakeClient)
     g._client("AIza-x")
     assert seen["http_options"].timeout == g.TIMEOUT_MS == 60_000
+
+
+def test_gemini_schema_and_result_carry_travel_fields():
+    scene = SCHEMA["properties"]["scenes"]["items"]
+    assert "place" in scene["properties"] and "place" in scene["required"]
+    assert {"intro_title", "intro_sub"} <= set(SCHEMA["required"])
+    body = json.dumps({"scenes": [{"text": "통영이에요", "image_index": 0, "place": "동피랑"}],
+                       "yt_title": "t", "yt_description": "d", "yt_tags": ["a"],
+                       "intro_title": "통영 여행", "intro_sub": "1박 2일"}, ensure_ascii=False)
+    post = BlogPost(title="제목", paragraphs=["p"], url="u", images=[ImageRef(url="i")])
+    s = generate_script_gemini(post, "k", client=FakeGemini([body]))
+    assert s.scenes[0].place == "동피랑" and (s.intro_title, s.intro_sub) == ("통영 여행", "1박 2일")

@@ -42,7 +42,7 @@ def inputs(tmp_path):
 @pytest.mark.parametrize("aspect,size", [("16:9", (1920, 1080)), ("9:16", (1080, 1920))])
 def test_render_video_dimensions_and_length(tmp_path, inputs, aspect, size):
     post, script = inputs()
-    out = render_video(post, script, RenderOptions(aspect=aspect), tmp_path / "w")
+    out = render_video(post, script, RenderOptions(aspect=aspect, intro=False, outro=False), tmp_path / "w")
     info = probe(out)
     assert out.name == "output.mp4"
     assert (info["width"], info["height"]) == size
@@ -60,7 +60,7 @@ def test_render_with_bgm(tmp_path, inputs, monkeypatch):
     from app.paths import user_music_dir
     make_silence(user_music_dir() / "짧은곡.mp3", 0.5)  # 영상보다 짧아도 반복
     post, script = inputs()
-    info = probe(render_video(post, script, RenderOptions(bgm="짧은곡.mp3"), tmp_path / "w"))
+    info = probe(render_video(post, script, RenderOptions(bgm="짧은곡.mp3", intro=False, outro=False), tmp_path / "w"))
     assert abs(info["duration"] - 2.8) < 0.6
 
 

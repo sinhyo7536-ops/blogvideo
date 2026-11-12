@@ -8,6 +8,11 @@ const MODE_HELP = {
   auto: "블로그 문장을 프로그램이 장면으로 나눠요. 무료예요. 다음 화면에서 자막을 다듬어 주세요.",
   gemini: "Google Gemini 무료 API로 대본을 자동으로 써요. 하루 사용 횟수 제한이 있어요. (설정에 Gemini 키 필요)",
 };
+const TEMPLATE_HELP = {
+  clean: "파란 제목 띠와 검은 상자 자막. 어떤 여행 글에도 잘 어울려요.",
+  mood: "상자 없는 자막과 천천히 겹치는 전환. 잔잔한 풍경·카페 여행에 좋아요.",
+  vlog: "노란 형광펜 자막과 빠른 전환. 맛집·액티비티 여행에 좋아요.",
+};
 const STAGE_LABEL = {
   queued: "순서를 기다리는 중",
   scraping: "글 읽는 중",
@@ -80,8 +85,13 @@ document.querySelectorAll(".seg").forEach((seg) => {
     if (!b) return;
     setSeg(seg.dataset.name, b.dataset.value);
     if (seg.dataset.name === "mode") setMode(b.dataset.value);
+    if (seg.dataset.name === "template") setTemplateHelp();
   });
 });
+
+function setTemplateHelp() {
+  $("template-help").textContent = TEMPLATE_HELP[segValue("template")] || "";
+}
 
 function setMode(mode) {
   setSeg("mode", mode);
@@ -126,7 +136,8 @@ async function loadMusic() {
 
 function currentOptions() {
   return { aspect: segValue("aspect") || "16:9", voice: segValue("voice") || "female",
-           quality: segValue("quality") || "1080p", bgm: $("bgm").value || null };
+           quality: segValue("quality") || "1080p", bgm: $("bgm").value || null,
+           template: segValue("template") || "clean", effects: segValue("effects") || "auto" };
 }
 
 // ---------- 작업 흐름 ----------
@@ -195,6 +206,14 @@ function openEdit(job) {
   setSeg("voice", state.options.voice);
   setSeg("quality", state.options.quality || "1080p");
   $("bgm-edit").value = state.options.bgm || "";
+  setSeg("template", state.options.template || "clean");
+  setSeg("effects", state.options.effects || "auto");
+  setTemplateHelp();
+  $("intro-title").value = state.script.intro_title || "";
+  $("intro-sub").value = state.script.intro_sub || "";
+  $("opt-intro").checked = state.options.intro !== false;
+  $("opt-outro").checked = state.options.outro !== false;
+  $("opt-title-bar").checked = state.options.title_bar !== false;
   $("yt-title").value = state.script.yt_title;
   $("yt-desc").value = state.script.yt_description;
   $("yt-tags").value = state.script.yt_tags.join(", ");
@@ -267,7 +286,15 @@ function renderScenes() {
     ta.addEventListener("input", upd);
     upd();
 
-    li.append(head, thumb, ta, count);
+    const place = document.createElement("input");
+    place.className = "place";
+    place.maxLength = 20;
+    place.placeholder = "장소 이름 (예: 통영 동피랑) · 비워 두면 표시 안 함";
+    place.value = scene.place || "";
+    place.setAttribute("aria-label", `장면 ${i + 1} 장소 이름`);
+    place.addEventListener("input", () => { scene.place = place.value; });
+
+    li.append(head, thumb, ta, count, place);
     list.appendChild(li);
   });
 }
@@ -285,7 +312,7 @@ function deleteScene(i) {
 }
 
 function addScene() {
-  state.script.scenes.push({ text: "", image_index: imageCount() ? 0 : null });
+  state.script.scenes.push({ text: "", image_index: imageCount() ? 0 : null, place: "" });
   renderScenes();
   const tas = document.querySelectorAll(".scene-card textarea");
   tas[tas.length - 1].focus();
@@ -327,13 +354,15 @@ function updateTitleCount() {
 
 function collectScript() {
   const scenes = state.script.scenes
-    .map((s) => ({ text: s.text.trim(), image_index: s.image_index }))
+    .map((s) => ({ text: s.text.trim(), image_index: s.image_index, place: (s.place || "").trim() }))
     .filter((s) => s.text);
   return {
     scenes,
     yt_title: $("yt-title").value.trim(),
     yt_description: $("yt-desc").value.trim(),
     yt_tags: $("yt-tags").value.split(",").map((t) => t.trim().replace(/^#/, "")).filter(Boolean),
+    intro_title: $("intro-title").value.trim(),
+    intro_sub: $("intro-sub").value.trim(),
   };
 }
 
@@ -342,7 +371,10 @@ async function startRender() {
   const script = collectScript();
   if (!script.scenes.length) return setError("edit-error", "자막이 있는 장면이 하나 이상 있어야 해요.");
   const options = { aspect: segValue("aspect"), voice: segValue("voice"), quality: segValue("quality") || "1080p",
-                    bgm: $("bgm-edit").value || null };
+                    bgm: $("bgm-edit").value || null,
+                    template: segValue("template") || "clean", effects: segValue("effects") || "auto",
+                    intro: $("opt-intro").checked, outro: $("opt-outro").checked,
+                    title_bar: $("opt-title-bar").checked };
   const btn = $("btn-render");
   btn.disabled = true;
   try {
@@ -364,6 +396,11 @@ function openResult(job) {
     video.dataset.src = v;
   }
   $("btn-download").href = `/api/jobs/${job.id}/video?download=1`;
+  $("thumb-box").classList.toggle("hidden", !job.has_thumbnail);
+  if (job.has_thumbnail) {
+    $("thumb-img").src = `/api/jobs/${job.id}/thumbnail?v=${job.finished_at || job.created_at}`;
+    $("btn-thumb").href = `/api/jobs/${job.id}/thumbnail?download=1`;
+  }
   $("out-title").textContent = job.script.yt_title;
   $("out-desc").textContent = job.script.yt_description;
   $("out-tags").textContent = job.script.yt_tags.join(", ");
@@ -423,10 +460,12 @@ async function openSettings() {
     const s = await api("GET", "/api/settings");
     $("api-key-current").textContent = s.anthropic_api_key ? `지금 저장된 키: ${s.anthropic_api_key}` : "아직 저장된 키가 없어요.";
     $("gemini-key-current").textContent = s.gemini_api_key ? `지금 저장된 Gemini 키: ${s.gemini_api_key}` : "아직 저장된 Gemini 키가 없어요.";
+    $("channel-name").value = s.channel_name || "";
   } catch (e) {
     setError("settings-error", e.message);
   }
   $("api-key").value = "";
+  $("channel-ok").classList.add("hidden");
   $("gemini-key").value = "";
   $("gemini-ok").classList.add("hidden");
   show("settings");
@@ -447,7 +486,17 @@ async function saveKey() {
   }
 }
 
-// [임시] Gemini 무료 API 키
+async function saveChannelName() {
+  setError("settings-error", "");
+  try {
+    const s = await api("PUT", "/api/settings", { channel_name: $("channel-name").value });
+    $("channel-name").value = s.channel_name || "";
+    $("channel-ok").classList.remove("hidden");
+  } catch (e) {
+    setError("settings-error", e.message);
+  }
+}
+
 async function saveGeminiKey() {
   setError("settings-error", "");
   const key = $("gemini-key").value.trim();
@@ -559,7 +608,8 @@ $("btn-save-key").onclick = saveKey;
 $("music-file").addEventListener("change", uploadMusic);
 $("btn-settings-back").onclick = leaveSettings;
 $("btn-keyed").onclick = makeKeyedInstaller;
-$("btn-save-gemini").onclick = saveGeminiKey; // [임시]
+$("btn-save-gemini").onclick = saveGeminiKey;
+$("btn-save-channel").onclick = saveChannelName;
 $("btn-free-auto").onclick = () => useFreeMode("auto");
 $("picker-close").onclick = () => $("picker").close();
 
@@ -589,5 +639,6 @@ window.addEventListener("pagehide", () => {
       state.job = null;
     }
   }
+  setTemplateHelp();
   show("home");
 })();

@@ -8,7 +8,7 @@ from app import secret
 from app.paths import config_dir
 
 log = logging.getLogger(__name__)
-SECRET_KEYS = ("anthropic_api_key", "gemini_api_key")  # gemini_api_key: [임시] Gemini
+SECRET_KEYS = ("anthropic_api_key", "gemini_api_key")
 
 
 def _file():

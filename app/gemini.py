@@ -1,8 +1,4 @@
-"""[임시 기능] Google Gemini 무료 API로 대본 만들기.
-
-Claude 크레딧이 들어오기 전까지 쓰는 임시 기능이다. 나중에 뺄 때는
-이 파일, tests/test_gemini.py, 그리고 'gemini' 표시가 붙은 곳(모드·설정·화면)을 지우면 된다.
-"""
+"""Google Gemini 무료 API로 대본 만들기 (Claude와 함께 쓰는 정식 기능)."""
 from __future__ import annotations
 
 import logging
@@ -11,8 +7,8 @@ from google import genai
 from google.genai import errors, types
 
 from app.errors import UserError
-from app.models import BlogPost, Scene, VideoScript
-from app.script import SYSTEM, ScriptDraft, _user_message, normalize_script
+from app.models import BlogPost, VideoScript
+from app.script import SYSTEM, ScriptDraft, _user_message, draft_to_script
 
 log = logging.getLogger(__name__)
 
@@ -36,15 +32,18 @@ SCHEMA = {
             "type": "array",
             "items": {
                 "type": "object",
-                "properties": {"text": {"type": "string"}, "image_index": {"type": "integer"}},
-                "required": ["text", "image_index"],
+                "properties": {"text": {"type": "string"}, "image_index": {"type": "integer"},
+                               "place": {"type": "string"}},
+                "required": ["text", "image_index", "place"],
             },
         },
         "yt_title": {"type": "string"},
         "yt_description": {"type": "string"},
         "yt_tags": {"type": "array", "items": {"type": "string"}},
+        "intro_title": {"type": "string"},
+        "intro_sub": {"type": "string"},
     },
-    "required": ["scenes", "yt_title", "yt_description", "yt_tags"],
+    "required": ["scenes", "yt_title", "yt_description", "yt_tags", "intro_title", "intro_sub"],
 }
 
 
@@ -103,9 +102,7 @@ def generate_script_gemini(post: BlogPost, api_key: str, client=None) -> VideoSc
             if bad_json >= 2:
                 break
             continue
-        raw = VideoScript(scenes=[Scene(text=s.text, image_index=s.image_index) for s in draft.scenes],
-                          yt_title=draft.yt_title, yt_description=draft.yt_description, yt_tags=draft.yt_tags)
-        result = normalize_script(raw, len(post.images))
+        result = draft_to_script(draft, post)
         if result.scenes:
             return result
         bad_json += 1
