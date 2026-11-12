@@ -190,3 +190,94 @@ def test_music_file_endpoint_only_serves_music_folder(api):
 def test_prompt_asks_for_whole_post_without_length_limit():
     assert "빠짐없이" in SYSTEM and "제한이 없" in SYSTEM
     assert "6~12" not in SYSTEM
+
+
+# ---------- 설치된 프로그램에서 유튜브 음악이 안 되던 문제 (PATH의 통과할 수 없는 폴더) ----------
+def _blocked_realpath(monkeypatch, bad="active_version_dir"):
+    import os
+
+    real = os.path.realpath
+
+    def guarded(p, *a, **k):
+        if bad in str(p):
+            raise OSError(448, "untrusted mount point", str(p))
+        return real(p, *a, **k)
+
+    monkeypatch.setattr(os.path, "realpath", guarded)
+
+
+def test_usable_path_drops_folders_that_cannot_be_resolved(monkeypatch, tmp_path):
+    import os
+
+    _blocked_realpath(monkeypatch)
+    value = os.pathsep.join([str(tmp_path), r"C:\Users\me\.local\share\ego\active_version_dir", "", r"C:\Windows"])
+    assert ytmusic.usable_path(value) == os.pathsep.join([str(tmp_path), r"C:\Windows"])
+
+
+def test_fetch_survives_unresolvable_path_entry(tmp_path, monkeypatch):
+    """yt-dlp가 PATH를 훑다가 OSError로 죽던 것: 가져오는 동안만 PATH를 정리하고, 끝나면 되돌린다."""
+    import os
+
+    import yt_dlp
+    from yt_dlp.utils import _jsruntime
+
+    bad = r"C:\Users\me\.local\share\ego\active_version_dir"
+    before = os.pathsep.join([bad, os.environ.get("PATH", "")])
+    monkeypatch.setenv("PATH", before)
+    _blocked_realpath(monkeypatch)
+    with pytest.raises(OSError):                     # 고치기 전의 실패가 실제로 재현되는지
+        _jsruntime._find_exe("deno")
+    seen = {}
+
+    class FakeYDL:
+        def __init__(self, opts):
+            self.opts = opts
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def extract_info(self, url, download):
+            seen["path"] = os.environ["PATH"]
+            _jsruntime._find_exe("deno")             # yt-dlp가 실제로 하는 PATH 훑기
+            return {"title": "곡", "duration": 100}
+
+        def process_ie_result(self, info, download):
+            Path(self.opts["outtmpl"].replace(".%(ext)s", ".mp3")).write_bytes(b"audio")
+
+    monkeypatch.setattr(yt_dlp, "YoutubeDL", FakeYDL)
+    assert ytmusic.fetch_audio("https://youtu.be/abc", tmp_path / "music") == "곡.mp3"
+    assert bad not in seen["path"] and os.environ["PATH"] == before
+
+
+def test_live_stream_has_its_own_message(tmp_path, monkeypatch):
+    import yt_dlp
+
+    class Live:
+        def __init__(self, opts): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def extract_info(self, url, download): return {"title": "t", "is_live": True}
+
+    monkeypatch.setattr(yt_dlp, "YoutubeDL", Live)
+    with pytest.raises(UserError, match="라이브"):
+        ytmusic.fetch_audio("https://youtu.be/abc", tmp_path)
+
+
+def test_youtube_refusal_points_to_own_file(tmp_path, monkeypatch):
+    """유튜브가 내려받기를 막으면(403) 우회하지 않고, 파일을 직접 넣는 방법을 안내한다."""
+    import yt_dlp
+
+    class Refused:
+        def __init__(self, opts): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def extract_info(self, url, download): return {"title": "t", "duration": 100}
+        def process_ie_result(self, info, download):
+            raise RuntimeError("ERROR: unable to download video data: HTTP Error 403: Forbidden")
+
+    monkeypatch.setattr(yt_dlp, "YoutubeDL", Refused)
+    with pytest.raises(UserError, match="내 MP3 파일"):
+        ytmusic.fetch_audio("https://youtu.be/abc", tmp_path)

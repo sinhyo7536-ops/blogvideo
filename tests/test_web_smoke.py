@@ -517,3 +517,21 @@ def test_scene_summary_shows_count_and_length(live_server, browser):
     page.on("dialog", lambda d: d.accept())
     page.click(".scene-card >> nth=1 >> button[title='삭제']")
     assert page.inner_text("#scene-summary") == first
+
+
+def test_own_mp3_file_becomes_background_music(live_server, browser, tmp_path):
+    page = browser.new_page(viewport={"width": 390, "height": 844})
+    _to_edit(page, live_server)
+    page.click('.seg[data-name="bgm-source"] button[data-value="file"]')
+    assert page.is_visible("#bgm-upload") and not page.is_visible("#bgm-pick") and not page.is_visible("#yt-url")
+    assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+    f = tmp_path / "내 여행 음악.mp3"
+    f.write_bytes(b"ID3 fake mp3")
+    page.set_input_files("#bgm-upload", str(f))
+    page.wait_for_selector("#bgm-ok:not(.hidden)", timeout=5000)
+    assert page.input_value("#bgm-edit") == "내 여행 음악.mp3" and page.is_visible("#bgm-pick")
+    bad = tmp_path / "노래.wav"
+    bad.write_bytes(b"RIFF")
+    page.click('.seg[data-name="bgm-source"] button[data-value="file"]')
+    page.set_input_files("#bgm-upload", str(bad))
+    page.wait_for_selector("#bgm-error:has-text('MP3')")

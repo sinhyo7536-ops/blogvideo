@@ -101,6 +101,7 @@
         <div class="seg small" data-name="bgm-source">
           <button type="button" data-value="pick" class="on">샘플·내 음악</button>
           <button type="button" data-value="youtube">유튜브 링크</button>
+          <button type="button" data-value="file">내 MP3 파일</button>
         </div>
         <div id="bgm-pick" class="voice-row">
           <select id="bgm-edit" aria-label="배경음악"></select>
@@ -113,6 +114,10 @@
           </div>
           <p class="muted">유튜브 영상의 소리를 그대로 배경음악으로 가져와요. 한 번 가져온 음악은 "샘플·내 음악" 목록에 남아요.</p>
           <p class="warn-box">⚠️ 직접 만든 음악이나 사용이 허락된 음악(유튜브 오디오 보관함, 저작권 없는 음악 등)만 써 주세요. 허락받지 않은 음악을 넣으면 올린 영상이 차단되거나 수익이 막힐 수 있어요.</p>
+        </div>
+        <div id="bgm-file" class="hidden">
+          <input id="bgm-upload" type="file" accept=".mp3,audio/mpeg">
+          <p class="muted">PC에 있는 MP3 파일을 고르면 배경음악 목록에 추가되고 바로 선택돼요. 유튜브 링크가 안 될 때도 이 방법을 쓰면 돼요.</p>
         </div>
         <p class="ok-text hidden" id="bgm-ok"></p>
         <p class="error-text hidden" id="bgm-error" role="alert"></p>

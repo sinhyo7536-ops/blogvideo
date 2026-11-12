@@ -212,6 +212,28 @@ function showBgmSource(which) {
   setSeg("bgm-source", which);
   $("bgm-pick").classList.toggle("hidden", which !== "pick");
   $("bgm-youtube").classList.toggle("hidden", which !== "youtube");
+  $("bgm-file").classList.toggle("hidden", which !== "file");
+}
+
+async function uploadBgmFile() {
+  const f = $("bgm-upload").files[0];
+  if (!f) return;
+  setError("bgm-error", "");
+  $("bgm-ok").classList.add("hidden");
+  const fd = new FormData();
+  fd.append("file", f);
+  try {
+    const r = await api("POST", "/api/music", fd);
+    await loadMusic();
+    $("bgm-edit").value = r.name;
+    $("bgm-upload").value = "";
+    showBgmSource("pick");
+    const ok = $("bgm-ok");
+    ok.textContent = `배경음악으로 골랐어요: ${r.name.replace(/\.mp3$/i, "")}`;
+    ok.classList.remove("hidden");
+  } catch (e) {
+    setError("bgm-error", e.message);
+  }
 }
 
 async function fetchYoutubeMusic() {
@@ -807,6 +829,7 @@ function goHome(clear) {
 $("btn-voice-play").onclick = previewVoice;
 $("btn-bgm-play").onclick = previewBgm;
 $("btn-yt-music").onclick = fetchYoutubeMusic;
+$("bgm-upload").addEventListener("change", uploadBgmFile);
 $("yt-url").addEventListener("keydown", (e) => { if (e.key === "Enter") fetchYoutubeMusic(); });
 $("bgm-edit").addEventListener("change", () => { $("bgm-audio").pause(); });
 $("voice").addEventListener("change", () => { $("voice-audio").pause(); });
