@@ -17,7 +17,7 @@ from app.script import SYSTEM, ScriptDraft, _user_message, normalize_script
 log = logging.getLogger(__name__)
 
 # 무료 사용분이 있는 모델 (Google 가격표 기준). 앞의 모델이 없으면 다음 것으로.
-MODELS = ["gemini-3.8-flash", "gemini-3.6-flash", "gemini-3.5-flash-lite"]
+MODELS = ["gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-3.8-flash"]  # 가볍고 빠른 모델부터
 
 NO_KEY = "Gemini API 키가 없어요. 설정에서 Gemini API 키를 넣어 주세요."
 BAD_KEY = "Gemini API 키를 확인해 주세요. 설정에서 다시 넣어 주세요."

@@ -103,6 +103,22 @@ def fetch_post(url: str) -> BlogPost:
         return extract_post(r.text, f"https://blog.naver.com/{blog_id}/{log_no}")
 
 
+def original_url(url: str) -> str | None:
+    """네이버 사진의 원본(최대 3840px) 주소. 네이버 사진이 아니면 None."""
+    u = urlparse(url)
+    if not (u.hostname or "").endswith("pstatic.net"):
+        return None
+    return urlunparse(u._replace(netloc="postfiles.pstatic.net", query="type=w3840"))
+
+
+def _get_image(c: httpx.Client, url: str) -> bytes | None:
+    try:
+        r = c.get(url, headers={"Referer": REFERER, "User-Agent": UA})
+    except httpx.HTTPError:
+        return None
+    return r.content if r.status_code == 200 and r.content else None
+
+
 def download_images(post: BlogPost, dest: Path, client: httpx.Client | None = None) -> BlogPost:
     dest.mkdir(parents=True, exist_ok=True)
     own = client is None
@@ -110,14 +126,12 @@ def download_images(post: BlogPost, dest: Path, client: httpx.Client | None = No
     kept: list[ImageRef] = []
     try:
         for img in post.images:
-            try:
-                r = c.get(img.url, headers={"Referer": REFERER, "User-Agent": UA})
-            except httpx.HTTPError:
-                continue
-            if r.status_code != 200 or not r.content:
+            big = original_url(img.url)
+            data = (_get_image(c, big) if big else None) or _get_image(c, img.url)  # 원본 우선, 안 되면 966px
+            if not data:
                 continue
             path = dest / f"img_{len(kept):02d}.jpg"
-            path.write_bytes(r.content)
+            path.write_bytes(data)
             kept.append(ImageRef(url=img.url, local_path=str(path)))
     finally:
         if own:

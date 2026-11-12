@@ -125,7 +125,8 @@ async function loadMusic() {
 }
 
 function currentOptions() {
-  return { aspect: segValue("aspect") || "16:9", voice: segValue("voice") || "female", bgm: $("bgm").value || null };
+  return { aspect: segValue("aspect") || "16:9", voice: segValue("voice") || "female",
+           quality: segValue("quality") || "1080p", bgm: $("bgm").value || null };
 }
 
 // ---------- 작업 흐름 ----------
@@ -192,6 +193,7 @@ function openEdit(job) {
   state.options = Object.assign({}, job.options);
   setSeg("aspect", state.options.aspect);
   setSeg("voice", state.options.voice);
+  setSeg("quality", state.options.quality || "1080p");
   $("bgm-edit").value = state.options.bgm || "";
   $("yt-title").value = state.script.yt_title;
   $("yt-desc").value = state.script.yt_description;
@@ -339,7 +341,8 @@ async function startRender() {
   setError("edit-error", "");
   const script = collectScript();
   if (!script.scenes.length) return setError("edit-error", "자막이 있는 장면이 하나 이상 있어야 해요.");
-  const options = { aspect: segValue("aspect"), voice: segValue("voice"), bgm: $("bgm-edit").value || null };
+  const options = { aspect: segValue("aspect"), voice: segValue("voice"), quality: segValue("quality") || "1080p",
+                    bgm: $("bgm-edit").value || null };
   const btn = $("btn-render");
   btn.disabled = true;
   try {
@@ -559,6 +562,16 @@ $("btn-keyed").onclick = makeKeyedInstaller;
 $("btn-save-gemini").onclick = saveGeminiKey; // [임시]
 $("btn-free-auto").onclick = () => useFreeMode("auto");
 $("picker-close").onclick = () => $("picker").close();
+
+// ---------- 앱 창 열림 신호 (창을 닫으면 프로그램이 스스로 꺼짐) ----------
+function heartbeat() {
+  fetch("/api/heartbeat", { method: "POST", keepalive: true }).catch(() => {});
+}
+heartbeat();
+setInterval(heartbeat, 5000);
+window.addEventListener("pagehide", () => {
+  navigator.sendBeacon("/api/bye");
+});
 
 (async function init() {
   try {

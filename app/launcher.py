@@ -7,11 +7,11 @@ import os
 import socket
 import sys
 import threading
-import webbrowser
 from typing import Callable
 
 import httpx
 
+from app.appwindow import open_app_window
 from app.paths import config_dir
 
 DEFAULT_PORT = 8765
@@ -61,6 +61,18 @@ def server_config(app, port: int):
     return uvicorn.Config(app, host=HOST, port=port, log_config=None, access_log=False)
 
 
+def watch_presence(server, app, interval: float = 2.0, max_loops: int | None = None) -> None:
+    """앱 창이 닫히고(신호 끊김) 진행 중인 작업이 없으면 서버를 끈다."""
+    loops = 0
+    while not server.should_exit and (max_loops is None or loops < max_loops):
+        loops += 1
+        if app.state.presence.should_exit(busy=app.state.manager.is_busy()):
+            logging.getLogger("launcher").info("app window closed; shutting down")
+            server.should_exit = True
+            return
+        threading.Event().wait(interval)
+
+
 def _serve(app, port: int, on_ready: Callable[[], None]) -> None:
     import uvicorn
 
@@ -71,6 +83,7 @@ def _serve(app, port: int, on_ready: Callable[[], None]) -> None:
             threading.Event().wait(0.1)
         if server.started:
             on_ready()
+            watch_presence(server, app)
 
     threading.Thread(target=watch, daemon=True).start()
     server.run()
@@ -85,7 +98,7 @@ def _alert(message: str) -> None:
         print(message, file=sys.stderr)
 
 
-def main(port: int = DEFAULT_PORT, opener: Callable[[str], object] = webbrowser.open,
+def main(port: int = DEFAULT_PORT, opener: Callable[[str], object] = open_app_window,
          serve: Callable = _serve, alert: Callable[[str], None] = _alert) -> int:
     _setup_logging()
     log = logging.getLogger("launcher")

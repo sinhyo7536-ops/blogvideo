@@ -74,3 +74,33 @@ def test_download_images_skips_failures(tmp_path):
         out = download_images(post, tmp_path, client=c)
     assert [i.url for i in out.images] == ["https://x/ok1.jpg", "https://x/ok2.jpg"]
     assert all(Path(i.local_path).read_bytes().startswith(b"\xff\xd8") for i in out.images)
+
+
+def test_download_prefers_original_size(tmp_path):
+    seen = []
+
+    def handler(r):
+        seen.append(str(r.url))
+        if r.url.host == "postfiles.pstatic.net" and "w3840" in str(r.url):
+            return httpx.Response(200, content=b"\xff\xd8\xff BIG")
+        return httpx.Response(200, content=b"\xff\xd8\xff small")
+
+    u = "https://mblogthumb-phinf.pstatic.net/MjAy/abc.JPEG/1.jpg?type=w966"
+    post = BlogPost(title="t", paragraphs=["p"], url="u", images=[ImageRef(url=u)])
+    with httpx.Client(transport=httpx.MockTransport(handler)) as c:
+        out = download_images(post, tmp_path, client=c)
+    assert seen[0] == "https://postfiles.pstatic.net/MjAy/abc.JPEG/1.jpg?type=w3840"
+    assert Path(out.images[0].local_path).read_bytes().endswith(b"BIG")
+
+
+def test_download_falls_back_when_original_missing(tmp_path):
+    def handler(r):
+        if r.url.host == "postfiles.pstatic.net":
+            return httpx.Response(404)
+        return httpx.Response(200, content=b"\xff\xd8\xff small")
+
+    u = "https://mblogthumb-phinf.pstatic.net/MjAy/abc.JPEG/1.jpg?type=w966"
+    post = BlogPost(title="t", paragraphs=["p"], url="u", images=[ImageRef(url=u)])
+    with httpx.Client(transport=httpx.MockTransport(handler)) as c:
+        out = download_images(post, tmp_path, client=c)
+    assert Path(out.images[0].local_path).read_bytes().endswith(b"small")

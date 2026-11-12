@@ -85,6 +85,7 @@ button:disabled { opacity: .55; cursor: default; }
 .field small { display: block; margin-top: .3rem; }
 
 .edit-options { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; margin: 1rem 0; }
+.edit-options .seg[data-name="quality"] { grid-column: 1 / -1; }
 .edit-options select { grid-column: 1 / -1; }
 
 .scenes { list-style: none; padding: 0; margin: 0; display: grid; gap: .8rem; }
@@ -141,6 +142,7 @@ dialog::backdrop { background: rgba(0,0,0,.45); }
 @media (min-width: 900px) {
   .layout { max-width: 960px; }
   .scenes { grid-template-columns: 1fr 1fr; }
-  .edit-options { grid-template-columns: 1fr 1fr 1.4fr; }
+  .edit-options { grid-template-columns: 1fr 1fr 1.3fr 1.4fr; }
+  .edit-options .seg[data-name="quality"] { grid-column: auto; }
   .edit-options select { grid-column: auto; }
 }

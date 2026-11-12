@@ -44,7 +44,7 @@ def test_success_uses_free_model_and_json_schema():
     assert [x.text for x in s.scenes] == ["안녕하세요", "끝"]
     assert s.scenes[1].image_index in (0, 1) and s.yt_tags == ["태그"]
     call = c.calls[0]
-    assert call["model"] == MODELS[0] == "gemini-3.8-flash"
+    assert call["model"] == MODELS[0] == "gemini-3.5-flash-lite"
     assert call["config"].response_mime_type == "application/json"
     assert call["config"].response_json_schema["properties"]["scenes"]
     assert "https://blog.naver.com/a/1" in str(call["contents"])

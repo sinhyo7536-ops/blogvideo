@@ -62,24 +62,25 @@ def _wrap(text: str, font: ImageFont.FreeTypeFont, max_w: int) -> list[str]:
     return lines
 
 
-def _layout(text: str, max_w: int, size: int) -> tuple[ImageFont.FreeTypeFont, list[str]]:
+def _layout(text: str, max_w: int, size: int, min_size: int = MIN_SIZE) -> tuple[ImageFont.FreeTypeFont, list[str]]:
     while True:
         font = _font(size)
         lines = _wrap(text, font, max_w)
-        if len(lines) <= MAX_LINES or size <= MIN_SIZE:
+        if len(lines) <= MAX_LINES or size <= min_size:
             if len(lines) > MAX_LINES:
                 lines = lines[:MAX_LINES]
                 lines[-1] = lines[-1][:-1] + "…"
             return font, lines
-        size -= 4
+        size -= max(2, size // 18)
 
 
 def render_caption_png(text: str, width: int, height: int, out: Path) -> Path:
     text = supported_text(text)
     vertical = height > width
-    base = 72 if vertical else 64
+    k = min(width, height) / 1080  # 화질(720p/1080p/1440p)에 맞춰 비율 유지
+    base = round((72 if vertical else 64) * k)
     max_w = int(width * 0.88)
-    font, lines = _layout(text, max_w - 40, base)
+    font, lines = _layout(text, max_w - round(40 * k), base, round(MIN_SIZE * k))
     size = font.size
     line_h = int(size * 1.35)
     pad = int(size * 0.45)
@@ -91,13 +92,13 @@ def render_caption_png(text: str, width: int, height: int, out: Path) -> Path:
     d = ImageDraw.Draw(im)
     if lines:
         widest = max(font.getlength(l) for l in lines)
-        box_w = min(max_w, int(widest) + pad * 2 + 20)
+        box_w = min(max_w, int(widest) + pad * 2 + round(20 * k))
         left = (width - box_w) // 2
         d.rounded_rectangle([left, top, left + box_w, bottom], radius=int(size * 0.3), fill=(0, 0, 0, 160))
         for i, line in enumerate(lines):
             y = top + pad + i * line_h + line_h // 2
             d.text((width // 2, y), line, font=font, fill="white", anchor="mm",
-                   stroke_width=4, stroke_fill="black")
+                   stroke_width=max(2, round(4 * k)), stroke_fill="black")
     out.parent.mkdir(parents=True, exist_ok=True)
     im.save(out)
     return out

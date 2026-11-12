@@ -88,6 +88,11 @@ class JobManager:
                 log.exception("could not save state for %s", job_id)  # 메모리 상태는 유지
             return s
 
+    def is_busy(self) -> bool:
+        """진행 중이거나 기다리는 작업이 있으면 True."""
+        with self._lock:
+            return any(s.stage in _ACTIVE for s in self._jobs.values())
+
     def get(self, job_id: str) -> JobState:
         with self._lock:
             return self._jobs[job_id]

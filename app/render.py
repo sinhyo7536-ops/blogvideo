@@ -17,7 +17,13 @@ FPS = 30
 FADE = 0.3
 BG_COLOR = "0x1e1e28"
 FAILED = "영상을 만들지 못했어요."
-SIZES = {"16:9": (1920, 1080), "9:16": (1080, 1920)}
+_SHORT_SIDE = {"720p": 720, "1080p": 1080, "1440p": 1440}
+
+
+def size_for(aspect: str, quality: str) -> tuple[int, int]:
+    short = _SHORT_SIDE[quality]
+    long = short * 16 // 9
+    return (long, short) if aspect == "16:9" else (short, long)
 
 
 def resolve_bgm(name: str | None) -> Path | None:
@@ -40,24 +46,33 @@ def _run(args: list[str], log: Path) -> None:
         raise UserError(FAILED)
 
 
-def _prepare_bg(src: str, out: Path) -> Path:
+SUPERSAMPLE = 2   # 확대 효과를 영상의 2배 크기에서 계산한 뒤 줄여서 떨림을 없앤다
+ZOOM = 0.10       # 장면 동안 10% 천천히 확대
+
+
+def _prepare_bg(src: str, out: Path, size: tuple[int, int]) -> Path:
+    """사진을 영상 비율에 맞게 꽉 채워 자르고, 2배 크기로 맞춰 저장 (EXIF 회전 반영)."""
+    w, h = size
     with Image.open(src) as im:
-        ImageOps.exif_transpose(im).convert("RGB").save(out, quality=92)
+        img = ImageOps.exif_transpose(im).convert("RGB")
+        ImageOps.fit(img, (w * SUPERSAMPLE, h * SUPERSAMPLE), Image.LANCZOS).save(out, quality=92)
     return out
 
 
 def _scene_clip(i: int, bg: Path | None, caption: Path, audio: str, duration: float,
                 size: tuple[int, int], workdir: Path, log: Path) -> Path:
     w, h = size
-    bw, bh = int(w * 1.2) // 2 * 2, int(h * 1.2) // 2 * 2
-    frames = max(1, round(duration * FPS))
+    sw, sh = w * SUPERSAMPLE, h * SUPERSAMPLE
     if bg is not None:
-        src = ["-i", str(bg)]
+        # 매 프레임 크기를 조금씩 키우고(부분 픽셀까지 부드럽게) 가운데를 잘라 원래 크기로 줄인다.
+        # 예전 zoompan은 위치를 정수 픽셀로 반올림해서 화면이 1~2픽셀씩 떨렸다.
+        src = ["-loop", "1", "-framerate", str(FPS), "-t", f"{duration:.3f}", "-i", str(bg)]
+        bg_chain = (f"[0:v]scale=w='trunc({sw}*(1+{ZOOM}*t/{duration:.3f})/2)*2':h=-2:eval=frame:flags=bicubic,"
+                    f"crop={sw}:{sh},scale={w}:{h}:flags=lanczos,setsar=1[bg];")
     else:
-        src = ["-f", "lavfi", "-i", f"color=c={BG_COLOR}:s={bw}x{bh}:r=1:d=1"]
-    vf = (f"[0:v]scale={bw}:{bh}:force_original_aspect_ratio=increase,crop={bw}:{bh},setsar=1,"
-          f"zoompan=z='min(zoom+0.0008,1.12)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
-          f":d={frames}:s={w}x{h}:fps={FPS}[bg];"
+        src = ["-f", "lavfi", "-t", f"{duration:.3f}", "-i", f"color=c={BG_COLOR}:s={w}x{h}:r={FPS}"]
+        bg_chain = "[0:v]setsar=1[bg];"
+    vf = (bg_chain +
           f"[bg][1:v]overlay=0:0,fade=t=in:st=0:d={FADE},"
           f"fade=t=out:st={max(0.0, duration - FADE):.3f}:d={FADE},format=yuv420p[v];"
           f"[2:a]aresample=44100,aformat=channel_layouts=stereo,apad[a]")
@@ -73,7 +88,7 @@ def render_video(post: BlogPost, script: VideoScript, options: RenderOptions, wo
                  on_progress: Callable[[float], None] | None = None) -> Path:
     workdir.mkdir(parents=True, exist_ok=True)
     log = workdir / "render.log"
-    size = SIZES[options.aspect]
+    size = size_for(options.aspect, options.quality)
     report = on_progress or (lambda _: None)
     clips = []
     n = len(script.scenes)
@@ -87,7 +102,7 @@ def render_video(post: BlogPost, script: VideoScript, options: RenderOptions, wo
             src = post.images[scene.image_index].local_path
             if src and Path(src).exists():
                 try:
-                    bg = _prepare_bg(src, workdir / f"bg_{i:02d}.jpg")
+                    bg = _prepare_bg(src, workdir / f"bg_{i:02d}.jpg", size)
                 except OSError:
                     bg = None
         caption = render_caption_png(scene.text, *size, workdir / f"caption_{i:02d}.png")

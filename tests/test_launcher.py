@@ -62,3 +62,31 @@ def test_first_launch_serves_then_opens(home):
     code = launcher.main(port=port, opener=opened.append, serve=fake_serve, alert=pytest.fail)
     assert code == 0 and opened == [f"http://127.0.0.1:{port}"]
     assert (home / "config" / "logs" / "app.log").exists()
+
+
+def test_watcher_stops_server_when_window_closed():
+    from types import SimpleNamespace
+
+    server = SimpleNamespace(should_exit=False, started=True)
+    state = SimpleNamespace(presence=SimpleNamespace(should_exit=lambda busy: not busy),
+                            manager=SimpleNamespace(is_busy=lambda: False))
+    launcher.watch_presence(server, SimpleNamespace(state=state), interval=0.01, max_loops=3)
+    assert server.should_exit is True
+
+
+def test_watcher_keeps_server_while_busy():
+    from types import SimpleNamespace
+
+    server = SimpleNamespace(should_exit=False, started=True)
+    state = SimpleNamespace(presence=SimpleNamespace(should_exit=lambda busy: not busy),
+                            manager=SimpleNamespace(is_busy=lambda: True))
+    launcher.watch_presence(server, SimpleNamespace(state=state), interval=0.01, max_loops=3)
+    assert server.should_exit is False
+
+
+def test_default_opener_is_app_window():
+    import inspect
+
+    from app import appwindow
+
+    assert inspect.signature(launcher.main).parameters["opener"].default is appwindow.open_app_window

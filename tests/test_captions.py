@@ -30,3 +30,13 @@ def test_caption_special_chars(tmp_path):
 def test_vertical_caption_sits_above_bottom_ui(tmp_path):
     im = Image.open(render_caption_png("세로 영상 자막", 1080, 1920, tmp_path / "c.png"))
     assert im.getbbox()[3] <= int(1920 * 0.80)
+
+
+def test_caption_scales_with_resolution(tmp_path):
+    def rel_height(w, h):
+        im = Image.open(render_caption_png("화질에 맞는 자막 크기", w, h, tmp_path / f"c{w}.png"))
+        b = im.getbbox()
+        return (b[3] - b[1]) / h, (b[2] - b[0]) / w
+
+    small, big = rel_height(1280, 720), rel_height(2560, 1440)
+    assert abs(small[0] - big[0]) < 0.01 and abs(small[1] - big[1]) < 0.01

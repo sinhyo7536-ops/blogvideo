@@ -33,6 +33,39 @@ BAD_INPUT = "입력한 내용이 올바르지 않아요. 다시 확인해 주세
 log = logging.getLogger(__name__)
 
 
+class Presence:
+    """화면(앱 창)이 열려 있는지: 화면이 몇 초마다 보내는 신호로 판단한다."""
+
+    SILENCE = 150      # 신호가 이만큼 끊기면 창이 닫힌 것으로 본다(초). 최소화 시 브라우저가 타이머를 1분 간격으로 늦추므로 넉넉히
+    AFTER_BYE = 8      # 창을 닫을 때 보내는 신호 뒤 이만큼 새 신호가 없으면 종료(새로고침과 구분)
+    NEVER_OPENED = 180  # 창이 끝내 안 열리면 이만큼 뒤 종료
+
+    def __init__(self, clock=None):
+        import time
+
+        self._clock = clock or time.monotonic
+        self.started = self._clock()
+        self.last_seen: float | None = None
+        self.bye_at: float | None = None
+
+    def seen(self) -> None:
+        self.last_seen = self._clock()
+        self.bye_at = None
+
+    def bye(self) -> None:
+        self.bye_at = self._clock()
+
+    def should_exit(self, busy: bool) -> bool:
+        if busy:
+            return False
+        now = self._clock()
+        if self.last_seen is None:
+            return now - self.started > self.NEVER_OPENED
+        if self.bye_at is not None and now - self.bye_at > self.AFTER_BYE:
+            return True
+        return now - self.last_seen > self.SILENCE
+
+
 def default_steps() -> Steps:
     from app.render import render_video
     from app.scraper.naver import download_images, fetch_post
@@ -98,6 +131,7 @@ def create_app(manager: JobManager | None = None) -> FastAPI:
     manager = manager or JobManager(jobs_dir(), default_steps())
     app = FastAPI(title="블로그 영상 변환기", docs_url=None, redoc_url=None)
     app.state.manager = manager
+    app.state.presence = Presence()
     web = resource_path("app/web")
 
     @app.middleware("http")
@@ -144,6 +178,14 @@ def create_app(manager: JobManager | None = None) -> FastAPI:
         return FileResponse(web / "index.html", headers={"Cache-Control": "no-cache"})
 
     app.mount("/static", StaticFiles(directory=web), name="static")
+
+    @app.post("/api/heartbeat", status_code=204)
+    def heartbeat():
+        app.state.presence.seen()
+
+    @app.post("/api/bye", status_code=204)
+    def bye():
+        app.state.presence.bye()
 
     @app.get("/api/info")
     def info(request: Request):

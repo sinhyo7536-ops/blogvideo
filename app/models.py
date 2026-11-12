@@ -37,6 +37,7 @@ class VideoScript(BaseModel):
 class RenderOptions(BaseModel):
     aspect: Literal["16:9", "9:16"] = "16:9"
     voice: Literal["female", "male"] = "female"
+    quality: Literal["720p", "1080p", "1440p"] = "1080p"
     bgm: str | None = None
     bgm_volume: float = Field(default=0.15, ge=0.0, le=1.0)
 

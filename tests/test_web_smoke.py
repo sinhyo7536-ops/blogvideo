@@ -226,3 +226,51 @@ def test_gemini_key_and_mode_in_ui(live_server, browser):
     page.click("#btn-save-gemini")
     page.wait_for_selector("text=지금 저장된 Gemini 키: AIzaSy…4321")
     shot(page, "d8_settings_gemini")
+
+
+def test_quality_choice_is_sent(live_server, browser):
+    page = browser.new_page(viewport={"width": 390, "height": 844})
+    page.goto(live_server)
+    page.evaluate("localStorage.clear()")
+    page.reload()
+    page.fill("#url", "https://blog.naver.com/a/1")
+    page.click("text=1440p(고화질)")
+    page.click("#btn-script")
+    page.wait_for_selector(".scene-card", timeout=10000)
+    # 편집 화면에도 선택한 화질이 표시됨
+    assert page.locator('#view-edit .seg[data-name="quality"] button.on').inner_text() == "1440p"
+    job = page.evaluate("fetch('/api/jobs/' + localStorage.getItem('blogvideo.jobId')).then(r => r.json())")
+    assert job["options"]["quality"] == "1440p"
+
+
+def test_edit_options_fit_on_phone(live_server, browser):
+    page = browser.new_page(viewport={"width": 390, "height": 844})
+    _to_edit(page, live_server)
+    box = page.locator('#view-edit .seg[data-name="quality"] button[data-value="1440p"]').bounding_box()
+    assert box["x"] + box["width"] <= 390 - 16
+
+
+def test_page_sends_heartbeat_and_bye(tmp_path, monkeypatch, browser):
+    monkeypatch.setenv("BLOGVIDEO_HOME", str(tmp_path))
+    m = JobManager(tmp_path / "jobs", fake_steps())
+    app = create_app(m)
+    port = _free_port()
+    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
+    t = threading.Thread(target=server.run, daemon=True)
+    t.start()
+    while not server.started:
+        time.sleep(0.05)
+    try:
+        page = browser.new_page()
+        page.goto(f"http://127.0.0.1:{port}")
+        page.wait_for_timeout(800)
+        assert app.state.presence.last_seen is not None
+        page.close(run_before_unload=True)  # 창 닫기
+        deadline = time.time() + 3
+        while app.state.presence.bye_at is None and time.time() < deadline:
+            time.sleep(0.05)
+        assert app.state.presence.bye_at is not None
+    finally:
+        server.should_exit = True
+        t.join(5)
+        m.stop()

@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#1f6feb">
   <title>블로그 영상 변환기</title>
+  <link rel="icon" href="/static/icon.png">
   <link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
@@ -46,6 +47,15 @@
       </fieldset>
 
       <fieldset class="field">
+        <legend>화질</legend>
+        <div class="seg" data-name="quality">
+          <button type="button" data-value="720p">720p(빠름)</button>
+          <button type="button" data-value="1080p" class="on">1080p(기본)</button>
+          <button type="button" data-value="1440p">1440p(고화질)</button>
+        </div>
+      </fieldset>
+
+      <fieldset class="field">
         <legend>성우 목소리</legend>
         <div class="seg" data-name="voice">
           <button type="button" data-value="female" class="on">여자 목소리</button>
@@ -74,6 +84,11 @@
         <div class="seg small" data-name="voice">
           <button type="button" data-value="female">여자</button>
           <button type="button" data-value="male">남자</button>
+        </div>
+        <div class="seg small" data-name="quality">
+          <button type="button" data-value="720p">720p</button>
+          <button type="button" data-value="1080p">1080p</button>
+          <button type="button" data-value="1440p">1440p</button>
         </div>
         <select id="bgm-edit" aria-label="배경음악"></select>
       </div>
