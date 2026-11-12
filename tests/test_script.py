@@ -155,6 +155,6 @@ def test_short_title(title, expected):
 def test_blog_name_drops_naver_prefix():
     from app.scraper.naver import extract_post
 
-    html = ('<meta property="og:site_name" content="네이버 블로그 | 신효의 여행노트">'
+    html = ('<meta property="og:site_name" content="네이버 블로그 | 모두의 여행노트">'
             '<div class="se-main-container"><p class="se-text-paragraph">본문</p></div>')
-    assert extract_post(html, "u").blog_name == "신효의 여행노트"
+    assert extract_post(html, "u").blog_name == "모두의 여행노트"

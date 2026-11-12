@@ -353,11 +353,11 @@ def test_channel_name_saved_in_settings(live_server, browser):
     page.goto(live_server)
     page.click("#open-settings")
     page.wait_for_selector("#channel-name")
-    page.fill("#channel-name", "신효의 여행노트")
+    page.fill("#channel-name", "모두의 여행노트")
     page.click("#btn-save-channel")
     page.wait_for_selector("#channel-ok:not(.hidden)")
-    assert load_config()["channel_name"] == "신효의 여행노트"
+    assert load_config()["channel_name"] == "모두의 여행노트"
     assert load_config()["anthropic_api_key"] == "sk-ant-test1234"   # 키는 그대로
     page.reload()
     page.click("#open-settings")
-    page.wait_for_function("document.getElementById('channel-name').value === '신효의 여행노트'")
+    page.wait_for_function("document.getElementById('channel-name').value === '모두의 여행노트'")

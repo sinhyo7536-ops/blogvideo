@@ -187,9 +187,9 @@ def _client(tmp_path, monkeypatch, steps=None):
 def test_channel_name_setting_roundtrip(tmp_path, monkeypatch):
     c, _ = _client(tmp_path, monkeypatch)
     assert c.get("/api/settings").json()["channel_name"] == ""
-    r = c.put("/api/settings", json={"channel_name": "  신효의   여행노트 "})
-    assert r.json()["channel_name"] == "신효의 여행노트"
-    assert c.put("/api/settings", json={"anthropic_api_key": "sk-ant-abcdefgh1234"}).json()["channel_name"] == "신효의 여행노트"
+    r = c.put("/api/settings", json={"channel_name": "  모두의   여행노트 "})
+    assert r.json()["channel_name"] == "모두의 여행노트"
+    assert c.put("/api/settings", json={"anthropic_api_key": "sk-ant-abcdefgh1234"}).json()["channel_name"] == "모두의 여행노트"
     assert c.put("/api/settings", json={"channel_name": ""}).json()["channel_name"] == ""
 
 
