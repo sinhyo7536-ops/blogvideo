@@ -44,7 +44,7 @@ def test_second_launch_only_opens_browser(home):
 def test_port_taken_by_other_program_alerts(home):
     port = free_port()
     blocker = socket.socket()
-    blocker.bind(("0.0.0.0", port))
+    blocker.bind((launcher.HOST, port))  # 같은 주소(127.0.0.1)를 다른 프로그램이 점유
     blocker.listen()
     alerts = []
     code = launcher.main(port=port, opener=pytest.fail, serve=lambda *a: pytest.fail("served"), alert=alerts.append)
