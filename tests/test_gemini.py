@@ -153,3 +153,48 @@ def test_api_keyed_installer_with_only_gemini_key(client):
     config.save_config({"gemini_api_key": "AIza-only"})
     r = client.post("/api/keyed-installer", files={"file": ("s.exe", FAKE_SETUP, "application/octet-stream")})
     assert r.status_code == 200 and keybundle.read_trailer(r.content) == {"gemini_api_key": "AIza-only"}
+
+
+# ---- 30%에서 멈춤 / "서버가 바빠요" 대응 ----------------------------------------
+def test_schema_is_plain_without_refs():
+    c = FakeGemini([GOOD])
+    generate_script_gemini(POST, "k", client=c)
+    schema = json.dumps(c.calls[0]["config"].response_json_schema)
+    assert "$ref" not in schema and "$defs" not in schema
+    s = c.calls[0]["config"].response_json_schema
+    assert s["properties"]["scenes"]["items"]["properties"]["image_index"]["type"] == "integer"
+
+
+def test_server_error_moves_to_next_model():
+    c = FakeGemini([_err(errors.ServerError, 500, "INTERNAL"), GOOD])
+    generate_script_gemini(POST, "k", client=c)
+    assert [x["model"] for x in c.calls] == MODELS[:2]
+
+
+def test_timeout_moves_to_next_model():
+    import httpx2
+
+    c = FakeGemini([httpx2.ReadTimeout("timed out"), GOOD])
+    generate_script_gemini(POST, "k", client=c)
+    assert [x["model"] for x in c.calls] == MODELS[:2]
+
+
+def test_all_models_fail_shows_error_code():
+    c = FakeGemini([_err(errors.ServerError, 503, "UNAVAILABLE")] * len(MODELS))
+    with pytest.raises(UserError) as e:
+        generate_script_gemini(POST, "k", client=c)
+    assert "503" in e.value.message and len(c.calls) == len(MODELS)
+
+
+def test_client_has_request_timeout(monkeypatch):
+    import app.gemini as g
+
+    seen = {}
+
+    class FakeClient:
+        def __init__(self, **kw):
+            seen.update(kw)
+
+    monkeypatch.setattr(g.genai, "Client", FakeClient)
+    g._client("AIza-x")
+    assert seen["http_options"].timeout == g.TIMEOUT_MS == 60_000
