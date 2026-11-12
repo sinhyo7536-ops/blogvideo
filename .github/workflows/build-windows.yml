@@ -1,0 +1,97 @@
+name: Build Windows installer
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]" pyinstaller
+
+      - name: Download FFmpeg (gyan.dev release essentials, SHA256 verified)
+        run: |
+          $url = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
+          Invoke-WebRequest $url -OutFile ffmpeg.zip
+          $expected = (Invoke-WebRequest "$url.sha256").Content.Trim().Split(" ")[0].ToLower()
+          $actual = (Get-FileHash ffmpeg.zip -Algorithm SHA256).Hash.ToLower()
+          if ($expected -ne $actual) { throw "FFmpeg checksum mismatch: $expected vs $actual" }
+          Expand-Archive ffmpeg.zip -DestinationPath ffmpeg_extract
+          $dir = Get-ChildItem ffmpeg_extract -Directory | Select-Object -First 1
+          New-Item -ItemType Directory -Force ffmpeg | Out-Null
+          Copy-Item "$($dir.FullName)\bin\ffmpeg.exe", "$($dir.FullName)\bin\ffprobe.exe" ffmpeg\
+          Copy-Item "$($dir.FullName)\LICENSE" ffmpeg\LICENSE.txt
+          Copy-Item "$($dir.FullName)\README.txt" ffmpeg\README.txt -ErrorAction SilentlyContinue
+          & .\ffmpeg\ffmpeg.exe -version | Select-Object -First 1
+
+      - name: Run tests
+        run: |
+          $env:PATH = "$PWD\ffmpeg;$env:PATH"
+          pytest -q -m "not e2e"
+
+      - name: Check real Edge TTS (Korean voices)
+        continue-on-error: true
+        run: |
+          $env:PATH = "$PWD\ffmpeg;$env:PATH"
+          python -c "import asyncio, pathlib; from app.tts import synthesize_scene, probe_duration; p = pathlib.Path('tts_check.mp3'); asyncio.run(synthesize_scene('안녕하세요. 블로그 영상 변환기 음성 테스트입니다.', 'ko-KR-SunHiNeural', p)); print('Edge TTS OK, seconds =', probe_duration(p))"
+
+      - name: Build app (PyInstaller)
+        run: pyinstaller --noconfirm --distpath build/dist --workpath build/work packaging/blogvideo.spec
+
+      - name: Smoke test built app
+        run: |
+          $env:BLOGVIDEO_HOME = "$PWD\smoke_home"
+          $env:BROWSER = "none"
+          $p = Start-Process -FilePath "build\dist\BlogVideo\BlogVideo.exe" -PassThru
+          $ok = $false
+          for ($i = 0; $i -lt 60; $i++) {
+            Start-Sleep -Seconds 1
+            try {
+              $r = Invoke-WebRequest "http://127.0.0.1:8765/api/info" -UseBasicParsing
+              if ($r.StatusCode -eq 200) { $ok = $true; break }
+            } catch {}
+          }
+          Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+          if (-not $ok) { Get-Content "$env:BLOGVIDEO_HOME\config\logs\app.log" -ErrorAction SilentlyContinue; throw "app did not start" }
+          Write-Host "app started OK"
+
+      - name: Build installer (Inno Setup)
+        run: |
+          choco install innosetup -y --no-progress
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          $version = "0.1.0"
+          if ("${{ github.ref_type }}" -eq "tag") { $version = "${{ github.ref_name }}".TrimStart("v") }
+          & $iscc "/DAppVersion=$version" packaging\installer.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed" }
+          Get-ChildItem build\installer
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BlogVideo-Setup
+          path: build/installer/BlogVideo-Setup.exe
+          if-no-files-found: error
+
+      - name: Attach to release (tags only)
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/installer/BlogVideo-Setup.exe
