@@ -55,10 +55,12 @@ def test_render_without_images(tmp_path, inputs):
     assert probe(render_video(post, script, RenderOptions(), tmp_path / "w"))["width"] == 1920
 
 
-def test_render_with_bgm(tmp_path, inputs):
+def test_render_with_bgm(tmp_path, inputs, monkeypatch):
+    monkeypatch.setenv("BLOGVIDEO_HOME", str(tmp_path / "home"))
+    from app.paths import user_music_dir
+    make_silence(user_music_dir() / "짧은곡.mp3", 0.5)  # 영상보다 짧아도 반복
     post, script = inputs()
-    bgm = make_silence(tmp_path / "bgm.mp3", 0.5)  # 영상보다 짧아도 반복
-    info = probe(render_video(post, script, RenderOptions(bgm=str(bgm)), tmp_path / "w"))
+    info = probe(render_video(post, script, RenderOptions(bgm="짧은곡.mp3"), tmp_path / "w"))
     assert abs(info["duration"] - 2.8) < 0.6
 
 

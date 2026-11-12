@@ -11,6 +11,7 @@ from app.captions import render_caption_png
 from app.errors import UserError
 from app.models import BlogPost, RenderOptions, VideoScript
 from app.paths import ffmpeg_bin, music_dirs
+from app.procutil import quiet_kwargs
 
 FPS = 30
 FADE = 0.3
@@ -20,21 +21,19 @@ SIZES = {"16:9": (1920, 1080), "9:16": (1080, 1920)}
 
 
 def resolve_bgm(name: str | None) -> Path | None:
-    if not name:
+    """음악 폴더(내장/사용자) 안의 파일만 찾는다. 경로가 들어오면 무시."""
+    if not name or Path(name).name != name:
         return None
-    p = Path(name)
-    if p.is_absolute() and p.exists():
-        return p
     for d in music_dirs():
-        cand = d / Path(name).name
-        if cand.exists():
+        cand = d / name
+        if cand.is_file() and cand.resolve().parent == d.resolve():
             return cand
     return None
 
 
 def _run(args: list[str], log: Path) -> None:
-    r = subprocess.run([ffmpeg_bin(), "-y", "-hide_banner", "-loglevel", "error", *args],
-                       capture_output=True, text=True, encoding="utf-8", errors="replace")
+    r = subprocess.run([ffmpeg_bin(), "-nostdin", "-y", "-hide_banner", "-loglevel", "error", *args],
+                       capture_output=True, text=True, encoding="utf-8", errors="replace", **quiet_kwargs())
     if r.returncode != 0:
         with log.open("a", encoding="utf-8") as f:
             f.write(" ".join(args) + "\n" + r.stderr + "\n")

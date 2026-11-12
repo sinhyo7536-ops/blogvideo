@@ -3,7 +3,9 @@ from __future__ import annotations
 import time
 from typing import Literal
 
-from pydantic import BaseModel, Field
+import re
+
+from pydantic import BaseModel, Field, field_validator
 
 
 class ImageRef(BaseModel):
@@ -36,7 +38,17 @@ class RenderOptions(BaseModel):
     aspect: Literal["16:9", "9:16"] = "16:9"
     voice: Literal["female", "male"] = "female"
     bgm: str | None = None
-    bgm_volume: float = 0.15
+    bgm_volume: float = Field(default=0.15, ge=0.0, le=1.0)
+
+    @field_validator("bgm")
+    @classmethod
+    def _bgm_is_plain_name(cls, v: str | None) -> str | None:
+        """배경음악은 음악 폴더 안의 파일 이름만 허용 (경로·네트워크 경로 금지)."""
+        if v in (None, ""):
+            return None
+        if re.search(r'[\\/:]', v) or v.startswith(".") or not v.lower().endswith(".mp3"):
+            raise ValueError("bgm must be a music file name")
+        return v
 
 
 Stage = Literal["queued", "scraping", "scripting", "ready", "tts", "rendering", "done", "error"]
@@ -53,4 +65,5 @@ class JobState(BaseModel):
     options: RenderOptions = Field(default_factory=RenderOptions)
     video_path: str | None = None
     failed_phase: Literal["prepare", "render"] | None = None
+    finished_at: float | None = None
     created_at: float = Field(default_factory=time.time)

@@ -7,6 +7,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 from fastapi import FastAPI, File, Request, UploadFile
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -24,6 +25,7 @@ NO_KEY = "설정에서 API 키를 입력해 주세요."
 PC_ONLY = "설정은 PC에서만 바꿀 수 있어요."
 UNKNOWN = "알 수 없는 오류가 났어요. 다시 시도해 주세요."
 BAD_MUSIC = "MP3 파일만 올릴 수 있어요."
+BAD_INPUT = "입력한 내용이 올바르지 않아요. 다시 확인해 주세요."
 
 log = logging.getLogger(__name__)
 
@@ -59,8 +61,13 @@ def _is_local(request: Request) -> bool:
 
 
 def _public(s: JobState) -> dict:
+    """같은 와이파이의 기기에 보내는 상태. PC의 파일 경로(사용자 이름 포함)는 빼고 보낸다."""
     d = s.model_dump(exclude={"video_path"})
     d["has_video"] = bool(s.video_path)
+    if d.get("post"):
+        d["post"]["images"] = [{"url": i["url"]} for i in d["post"]["images"]]
+    if d.get("script"):
+        d["script"]["scenes"] = [{k: v for k, v in sc.items() if k != "audio_path"} for sc in d["script"]["scenes"]]
     return d
 
 
@@ -82,6 +89,10 @@ def create_app(manager: JobManager | None = None) -> FastAPI:
     @app.exception_handler(UserError)
     async def _user_error(request: Request, e: UserError):
         return JSONResponse({"message": e.message}, status_code=400)
+
+    @app.exception_handler(RequestValidationError)
+    async def _bad_input(request: Request, e: RequestValidationError):
+        return JSONResponse({"message": BAD_INPUT}, status_code=400)
 
     @app.exception_handler(KeyError)
     async def _not_found(request: Request, e: KeyError):

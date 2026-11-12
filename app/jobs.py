@@ -64,13 +64,23 @@ class JobManager:
         d.mkdir(parents=True, exist_ok=True)
         tmp = d / "state.tmp"
         tmp.write_text(s.model_dump_json(), "utf-8")
-        tmp.replace(d / "state.json")
+        for attempt in range(5):  # 윈도우에서 백신/색인이 파일을 잠깐 잡고 있을 수 있음
+            try:
+                tmp.replace(d / "state.json")
+                return
+            except PermissionError:
+                if attempt == 4:
+                    raise
+                time.sleep(0.1 * (attempt + 1))
 
     def _set(self, job_id: str, **changes) -> JobState:
         with self._lock:
             s = self._jobs[job_id].model_copy(update=changes)
             self._jobs[job_id] = s
-            self._save(s)
+            try:
+                self._save(s)
+            except OSError:
+                log.exception("could not save state for %s", job_id)  # 메모리 상태는 유지
             return s
 
     def get(self, job_id: str) -> JobState:
@@ -143,18 +153,24 @@ class JobManager:
             if item is None:
                 return
             job_id, phase = item
-            if job_id not in self._jobs:
-                continue
             try:
-                if phase == "prepare":
-                    self._prepare(job_id)
-                else:
-                    self._render(job_id)
-            except UserError as e:
-                self._set(job_id, stage="error", message=e.message, failed_phase=phase)
-            except Exception:
-                log.exception("job %s failed in %s", job_id, phase)
-                self._set(job_id, stage="error", message=UNKNOWN, failed_phase=phase)
+                self._run_one(job_id, phase)
+            except Exception:  # 워커 스레드는 절대 죽지 않게
+                log.exception("worker error on %s", job_id)
+
+    def _run_one(self, job_id: str, phase: str) -> None:
+        if job_id not in self._jobs:
+            return
+        try:
+            if phase == "prepare":
+                self._prepare(job_id)
+            else:
+                self._render(job_id)
+        except UserError as e:
+            self._set(job_id, stage="error", message=e.message, failed_phase=phase)
+        except Exception:
+            log.exception("job %s failed in %s", job_id, phase)
+            self._set(job_id, stage="error", message=UNKNOWN, failed_phase=phase)
 
     def _prepare(self, job_id: str) -> None:
         s = self._set(job_id, stage="scraping", progress=0.0)
@@ -172,4 +188,4 @@ class JobManager:
         self._set(job_id, script=script, stage="rendering", progress=0.2)
         out = self.steps.render_video(s.post, script, s.options, self.dir(job_id) / "render",
                                       on_progress=lambda p: self._set(job_id, progress=round(0.2 + 0.8 * p, 3)))
-        self._set(job_id, stage="done", progress=1.0, video_path=str(out))
+        self._set(job_id, stage="done", progress=1.0, video_path=str(out), finished_at=time.time())

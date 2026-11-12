@@ -49,7 +49,6 @@ jobs:
           pytest -q -m "not e2e"
 
       - name: Check real Edge TTS (Korean voices)
-        continue-on-error: true
         run: |
           $env:PATH = "$PWD\ffmpeg;$env:PATH"
           python -c "import asyncio, pathlib; from app.tts import synthesize_scene, probe_duration; p = pathlib.Path('tts_check.mp3'); asyncio.run(synthesize_scene('안녕하세요. 블로그 영상 변환기 음성 테스트입니다.', 'ko-KR-SunHiNeural', p)); print('Edge TTS OK, seconds =', probe_duration(p))"

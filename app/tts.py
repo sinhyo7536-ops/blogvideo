@@ -11,6 +11,7 @@ import edge_tts
 from app.errors import UserError
 from app.models import VideoScript
 from app.paths import ffprobe_bin
+from app.procutil import quiet_kwargs
 
 VOICES = {"female": "ko-KR-SunHiNeural", "male": "ko-KR-InJoonNeural"}
 PAD = 0.4
@@ -19,7 +20,8 @@ FAILED = "음성을 만들지 못했어요. 인터넷 연결을 확인하고 다
 
 def probe_duration(path: Path) -> float:
     out = subprocess.run([ffprobe_bin(), "-v", "error", "-show_entries", "format=duration",
-                          "-of", "csv=p=0", str(path)], capture_output=True, text=True, check=True)
+                          "-of", "csv=p=0", str(path)], capture_output=True, text=True, check=True,
+                         **quiet_kwargs())
     return float(out.stdout.strip())
 
 

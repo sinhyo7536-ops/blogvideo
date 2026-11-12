@@ -12,12 +12,31 @@ from app.paths import resource_path
 FONT = "assets/fonts/NotoSansKR-Bold.ttf"
 MAX_LINES = 3
 MIN_SIZE = 40
-_EMOJI = re.compile("[\U0001F000-\U0010FFFF☀-➿️‍]")
+_EMOJI = re.compile("[\U0001F000-\U0010FFFF\uFE0F\u200D]")
 
 
 @lru_cache(maxsize=16)
 def _font(size: int) -> ImageFont.FreeTypeFont:
     return ImageFont.truetype(str(resource_path(FONT)), size)
+
+
+@lru_cache(maxsize=1)
+def _notdef() -> bytes:
+    f = _font(48)
+    return bytes(f.getmask("\U0010FFFD"))
+
+
+@lru_cache(maxsize=4096)
+def _has_glyph(ch: str) -> bool:
+    if ch.isspace():
+        return True
+    return bytes(_font(48).getmask(ch)) != _notdef()
+
+
+def supported_text(text: str) -> str:
+    """폰트에 없는 글자(이모지 등)를 지워 영상에 네모(□)가 나오지 않게 한다."""
+    kept = "".join(ch for ch in _EMOJI.sub("", text) if _has_glyph(ch))
+    return " ".join(kept.split())
 
 
 def _wrap(text: str, font: ImageFont.FreeTypeFont, max_w: int) -> list[str]:
@@ -56,7 +75,7 @@ def _layout(text: str, max_w: int, size: int) -> tuple[ImageFont.FreeTypeFont, l
 
 
 def render_caption_png(text: str, width: int, height: int, out: Path) -> Path:
-    text = " ".join(_EMOJI.sub("", text).split())
+    text = supported_text(text)
     vertical = height > width
     base = 72 if vertical else 64
     max_w = int(width * 0.88)

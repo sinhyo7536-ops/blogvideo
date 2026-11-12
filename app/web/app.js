@@ -38,6 +38,7 @@ async function api(method, path, body) {
 }
 
 function show(view) {
+  state.view = view;
   VIEWS.forEach((v) => $("view-" + v).classList.toggle("hidden", v !== view));
   const wide = window.matchMedia("(min-width: 900px)").matches;
   $("phone-panel").classList.toggle("hidden", !(state.info && state.info.is_local && (wide || view === "home")));
@@ -336,7 +337,7 @@ async function startRender() {
 
 // ---------- 결과 ----------
 function openResult(job) {
-  const v = `/api/jobs/${job.id}/video?t=${Math.round(job.created_at)}-${job.script.scenes.length}#t=0.6`;
+  const v = `/api/jobs/${job.id}/video?v=${job.finished_at || job.created_at}#t=0.6`;
   const video = $("video");
   if (video.dataset.src !== v) {
     video.src = v;
@@ -392,6 +393,7 @@ async function retry() {
 // ---------- 설정 ----------
 async function openSettings() {
   stopPoll();
+  state.returnTo = state.view;
   setError("settings-error", "");
   $("settings-ok").classList.add("hidden");
   $("music-ok").classList.add("hidden");
@@ -439,8 +441,10 @@ async function uploadMusic() {
 }
 
 function leaveSettings() {
-  if (state.job) routeJob(state.job);
-  else show("home");
+  // 편집 중이던 대본은 서버 값으로 덮어쓰지 않고 그대로 돌아간다
+  if (state.returnTo === "edit" && state.script) return show("edit");
+  if (state.returnTo === "home" || !state.job) return show("home");
+  routeJob(state.job);
 }
 
 // ---------- 이동 ----------
@@ -464,7 +468,12 @@ $("btn-reedit").onclick = () => openEdit(state.job);
 $("btn-new").onclick = () => goHome(true);
 $("btn-retry").onclick = retry;
 $("btn-error-home").onclick = () => goHome(true);
-$("go-home").onclick = () => (state.job && state.job.stage !== "done" && state.job.stage !== "error" ? routeJob(state.job) : goHome(true));
+$("go-home").onclick = () => {
+  const busy = state.job && !["ready", "done", "error"].includes(state.job.stage);
+  if (busy) return routeJob(state.job); // 만드는 중이면 진행 화면으로
+  if (state.view === "edit" && !confirm("지금 대본을 그만두고 처음 화면으로 갈까요?")) return;
+  goHome(true);
+};
 $("open-settings").onclick = openSettings;
 $("btn-save-key").onclick = saveKey;
 $("music-file").addEventListener("change", uploadMusic);

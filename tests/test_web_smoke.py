@@ -102,3 +102,47 @@ def test_settings_visible_on_pc(live_server, browser):
     page.click("button:has-text('저장')")
     page.wait_for_selector("text=저장했어요")
     shot(page, "d4_settings")
+
+
+def _to_edit(page, base):
+    page.goto(base)
+    page.evaluate("localStorage.clear()")
+    page.reload()
+    page.fill("#url", "https://blog.naver.com/a/1")
+    page.click("button:has-text('대본 만들기')")
+    page.wait_for_selector(".scene-card", timeout=10000)
+
+
+def test_home_button_leaves_edit(live_server, browser):
+    page = browser.new_page(viewport={"width": 390, "height": 844})
+    _to_edit(page, live_server)
+    page.on("dialog", lambda d: d.accept())
+    page.click("#go-home")
+    page.wait_for_selector("#view-home:not(.hidden)", timeout=3000)
+    assert page.evaluate("localStorage.getItem('blogvideo.jobId')") is None
+
+
+def test_settings_roundtrip_keeps_edits(live_server, browser):
+    page = browser.new_page(viewport={"width": 1280, "height": 800})
+    _to_edit(page, live_server)
+    page.fill(".scene-card textarea >> nth=0", "바뀐 자막")
+    page.click("#open-settings")
+    page.wait_for_selector("#view-settings:not(.hidden)")
+    page.click("#btn-settings-back")
+    page.wait_for_selector("#view-edit:not(.hidden)")
+    assert page.input_value(".scene-card textarea >> nth=0") == "바뀐 자막"
+
+
+def test_rerender_refreshes_preview(live_server, browser):
+    page = browser.new_page(viewport={"width": 390, "height": 844})
+    _to_edit(page, live_server)
+    page.click("button:has-text('영상 만들기')")
+    page.wait_for_selector("#view-result:not(.hidden)", timeout=10000)
+    first = page.get_attribute("#video", "src")
+    page.click("#btn-reedit")
+    page.wait_for_selector("#view-edit:not(.hidden)")
+    page.wait_for_timeout(50)
+    page.click("button:has-text('영상 만들기')")
+    page.wait_for_selector("#view-progress:not(.hidden)", timeout=5000)
+    page.wait_for_selector("#view-result:not(.hidden)", timeout=10000)
+    assert page.get_attribute("#video", "src") != first

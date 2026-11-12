@@ -11,6 +11,9 @@ MODEL = "claude-opus-5-5"
 KEY_MSG = "설정에서 API 키를 확인해 주세요."
 OFFLINE = "인터넷 연결을 확인해 주세요."
 FAILED = "대본을 만들지 못했어요. 다시 시도해 주세요."
+NO_CREDIT = "API 크레딧이 부족해요. Anthropic 콘솔에서 결제 상태를 확인해 주세요."
+BUSY = "AI 서버가 바빠요. 잠시 뒤 다시 시도해 주세요."
+SLOW = "AI 응답이 늦어요. 잠시 뒤 다시 시도해 주세요."
 
 
 class SceneDraft(BaseModel):
@@ -68,7 +71,9 @@ def generate_script(post: BlogPost, api_key: str, client=None) -> VideoScript:
         if not api_key:
             raise UserError(KEY_MSG)
         client = anthropic.Anthropic(api_key=api_key, timeout=180, max_retries=2)
+    busy = False
     for _ in range(2):
+        busy = False
         try:
             resp = client.beta.messages.parse(
                 model=MODEL,
@@ -82,9 +87,22 @@ def generate_script(post: BlogPost, api_key: str, client=None) -> VideoScript:
             )
         except (anthropic.AuthenticationError, anthropic.PermissionDeniedError) as e:
             raise UserError(KEY_MSG) from e
+        except anthropic.APITimeoutError as e:
+            raise UserError(SLOW) from e
         except anthropic.APIConnectionError as e:
             raise UserError(OFFLINE) from e
-        except anthropic.APIStatusError:
+        except anthropic.RateLimitError as e:
+            raise UserError(BUSY) from e
+        except anthropic.BadRequestError as e:
+            if "credit" in str(e).lower() or "billing" in str(e).lower():
+                raise UserError(NO_CREDIT) from e
+            raise UserError(FAILED) from e
+        except anthropic.NotFoundError as e:
+            raise UserError(FAILED) from e
+        except anthropic.APIStatusError as e:
+            if e.status_code in (529, 503):
+                busy = True
+                continue
             continue
         draft = getattr(resp, "parsed_output", None)
         if resp.stop_reason == "refusal" or draft is None or not draft.scenes:
@@ -95,4 +113,4 @@ def generate_script(post: BlogPost, api_key: str, client=None) -> VideoScript:
         result = normalize_script(raw, len(post.images))
         if result.scenes:
             return result
-    raise UserError(FAILED)
+    raise UserError(BUSY if busy else FAILED)
