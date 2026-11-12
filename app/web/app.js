@@ -434,6 +434,45 @@ async function uploadMusic() {
   }
 }
 
+async function makeKeyedInstaller() {
+  setError("keyed-error", "");
+  $("keyed-ok").classList.add("hidden");
+  const f = $("setup-file").files[0];
+  if (!f) return setError("keyed-error", "먼저 BlogVideo-Setup.exe 파일을 골라 주세요.");
+  const btn = $("btn-keyed");
+  btn.disabled = true;
+  btn.textContent = "만드는 중…";
+  try {
+    const fd = new FormData();
+    fd.append("file", f);
+    const res = await fetch("/api/keyed-installer", { method: "POST", body: fd });
+    if (!res.ok) {
+      let msg = "설치 파일을 만들지 못했어요.";
+      try { msg = (await res.json()).message || msg; } catch (e) { /* 무시 */ }
+      throw new Error(msg);
+    }
+    const blob = await res.blob();
+    const cd = res.headers.get("Content-Disposition") || "";
+    const m = cd.match(/filename\*=UTF-8''([^;]+)/);
+    const name = m ? decodeURIComponent(m[1]) : "블로그영상변환기_설치_키포함.exe";
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+    const ok = $("keyed-ok");
+    ok.textContent = `만들었어요: ${name} (다운로드 폴더를 확인하세요)`;
+    ok.classList.remove("hidden");
+  } catch (e) {
+    setError("keyed-error", e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "키 넣은 설치 파일 만들기";
+  }
+}
+
 function leaveSettings() {
   // 편집 중이던 대본은 서버 값으로 덮어쓰지 않고 그대로 돌아간다
   if (state.returnTo === "edit" && state.script) return show("edit");
@@ -472,6 +511,7 @@ $("open-settings").onclick = openSettings;
 $("btn-save-key").onclick = saveKey;
 $("music-file").addEventListener("change", uploadMusic);
 $("btn-settings-back").onclick = leaveSettings;
+$("btn-keyed").onclick = makeKeyedInstaller;
 $("picker-close").onclick = () => $("picker").close();
 
 (async function init() {

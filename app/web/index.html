@@ -133,6 +133,20 @@
       <input id="music-file" type="file" accept=".mp3,audio/mpeg">
       <p class="ok-text hidden" id="music-ok"></p>
       <p class="error-text hidden" id="settings-error" role="alert"></p>
+
+      <h2>지인용 설치 파일 만들기</h2>
+      <p class="muted">지금 저장된 API 키를 설치 파일에 넣어 줘요. 이 파일로 설치하면 키를 따로 넣지 않아도 바로 쓸 수 있어요.</p>
+      <ol class="muted steps">
+        <li>받아 둔 <b>BlogVideo-Setup.exe</b> 를 고르세요.</li>
+        <li>"키 넣은 설치 파일 만들기"를 누르면 <b>블로그영상변환기_설치_키포함.exe</b> 가 저장돼요.</li>
+        <li>그 파일 하나만 지인에게 보내 주세요.</li>
+      </ol>
+      <p class="warn-box">⚠️ 이 파일에는 API 키가 숨어 있어요. 파일을 가진 사람은 키를 꺼낼 수 있으니 <b>지인에게만</b> 보내고, 인터넷에 올리지 마세요.</p>
+      <input id="setup-file" type="file" accept=".exe">
+      <button type="button" class="primary" id="btn-keyed">키 넣은 설치 파일 만들기</button>
+      <p class="ok-text hidden" id="keyed-ok"></p>
+      <p class="error-text hidden" id="keyed-error" role="alert"></p>
+
       <button type="button" class="ghost" id="btn-settings-back">돌아가기</button>
     </section>
 

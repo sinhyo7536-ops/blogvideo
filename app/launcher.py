@@ -89,6 +89,12 @@ def main(port: int = DEFAULT_PORT, opener: Callable[[str], object] = webbrowser.
          serve: Callable = _serve, alert: Callable[[str], None] = _alert) -> int:
     _setup_logging()
     log = logging.getLogger("launcher")
+    try:
+        from app.keybundle import import_pending_key
+
+        import_pending_key()  # 지인용 설치 파일로 설치했다면 키를 가져온다
+    except Exception:
+        log.exception("key import failed")
     url = f"http://127.0.0.1:{port}"
     if _already_running(port):
         opener(url)

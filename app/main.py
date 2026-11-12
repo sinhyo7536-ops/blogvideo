@@ -8,7 +8,7 @@ from urllib.parse import quote
 
 from fastapi import FastAPI, File, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -196,6 +196,24 @@ def create_app(manager: JobManager | None = None) -> FastAPI:
             raise UserError(BAD_MUSIC)
         (user_music_dir() / name).write_bytes(await file.read())
         return {"name": name, "builtin": False}
+
+    @app.post("/api/keyed-installer")
+    async def keyed_installer(request: Request, file: UploadFile = File(...)):
+        """설치 파일에 지금 저장된 API 키를 덧붙여 '지인용 설치 파일'을 만든다 (이 PC 안에서만)."""
+        if (r := pc_only(request)) is not None:
+            return r
+        from app.keybundle import embed
+
+        key = config.load_config().get("anthropic_api_key", "")
+        if not key:
+            raise UserError("먼저 위에서 API 키를 저장해 주세요.")
+        data = await file.read()
+        if len(data) > 400 * 1024 * 1024:
+            raise UserError("파일이 너무 커요. 블로그 영상 변환기 설치 파일을 골라 주세요.")
+        out = embed(data, key)
+        name = quote("블로그영상변환기_설치_키포함.exe")
+        return Response(out, media_type="application/octet-stream", headers={
+            "Content-Disposition": f"attachment; filename=\"BlogVideo-Setup-with-key.exe\"; filename*=UTF-8''{name}"})
 
     @app.get("/api/settings")
     def get_settings(request: Request):

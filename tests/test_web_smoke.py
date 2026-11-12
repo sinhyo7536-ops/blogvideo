@@ -146,3 +146,21 @@ def test_rerender_refreshes_preview(live_server, browser):
     page.wait_for_selector("#view-progress:not(.hidden)", timeout=5000)
     page.wait_for_selector("#view-result:not(.hidden)", timeout=10000)
     assert page.get_attribute("#video", "src") != first
+
+
+def test_make_keyed_installer(live_server, browser, tmp_path):
+    from app import keybundle
+    fake = tmp_path / "BlogVideo-Setup.exe"
+    fake.write_bytes(b"MZ" + b"\x00" * 100 + "BlogVideo".encode("utf-16-le") + b"\x90" * 5000)
+    page = browser.new_page(viewport={"width": 1280, "height": 800}, accept_downloads=True)
+    page.goto(live_server)
+    page.click("#open-settings")
+    page.wait_for_selector("#setup-file")
+    page.set_input_files("#setup-file", str(fake))
+    with page.expect_download() as dl:
+        page.click("#btn-keyed")
+    d = dl.value
+    assert "키포함" in d.suggested_filename and d.suggested_filename.endswith(".exe")
+    assert keybundle.read_trailer(open(d.path(), "rb").read()) == "sk-ant-test1234"
+    page.wait_for_selector("text=만들었어요")
+    shot(page, "d5_keyed")

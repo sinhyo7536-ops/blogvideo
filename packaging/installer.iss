@@ -10,6 +10,8 @@ AppId={{FE061E3D-A228-4C78-A929-231ED25A15D0}
 AppName={#AppName}
 AppVersion={#AppVersion}
 AppPublisher=BlogVideo
+VersionInfoCompany=BlogVideo
+VersionInfoProductName=BlogVideo
 DefaultDirName={autopf}\BlogVideo
 DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
@@ -49,6 +51,46 @@ Filename: "{sys}\taskkill.exe"; Parameters: "/F /IM {#AppExe}"; Flags: runhidden
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""BlogVideo"""; Flags: runhidden; RunOnceId: "DelFirewall"
 
 [Code]
+const
+  TrailerSize = 1024;
+
+{ 지인용 설치 파일: 이 설치 파일 끝 1024바이트에 덧붙인 키를 꺼내
+  %APPDATA%\BlogVideo\import.key 로 남긴다. 프로그램이 처음 켜질 때
+  윈도우 계정 암호화로 옮기고 이 파일을 지운다. }
+procedure ExtractBundledKey();
+var
+  Stream: TFileStream;
+  Buf, Data, Dir: AnsiString;
+  Len: Integer;
+begin
+  try
+    Stream := TFileStream.Create(ExpandConstant('{srcexe}'), fmOpenRead or fmShareDenyNone);
+    try
+      if Stream.Size <= TrailerSize then Exit;
+      Stream.Seek(-TrailerSize, soFromEnd);
+      SetLength(Buf, TrailerSize);
+      Stream.ReadBuffer(Buf, TrailerSize);
+    finally
+      Stream.Free;
+    end;
+    if Copy(Buf, 1, 6) <> 'BVKEY1' then Exit;
+    Len := StrToIntDef(Copy(Buf, 7, 4), 0);
+    if (Len <= 0) or (Len > TrailerSize - 10) then Exit;
+    Data := Copy(Buf, 11, Len);
+    Dir := ExpandConstant('{userappdata}\BlogVideo');
+    ForceDirectories(Dir);
+    SaveStringToFile(Dir + '\import.key', Data, False);
+  except
+    Log('bundled key extraction failed: ' + GetExceptionMessage);
+  end;
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if CurStep = ssPostInstall then
+    ExtractBundledKey();
+end;
+
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   Code: Integer;

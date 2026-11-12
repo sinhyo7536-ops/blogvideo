@@ -83,6 +83,30 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "ISCC failed" }
           Get-ChildItem build\installer
 
+      - name: Keyed installer end-to-end (fake key, silent install)
+        run: |
+          python -c "import pathlib; from app import keybundle; d = pathlib.Path('build/installer/BlogVideo-Setup.exe').read_bytes(); pathlib.Path('keyed.exe').write_bytes(keybundle.embed(d, 'sk-ant-ci-fake-0000'))"
+          $p = Start-Process -FilePath ".\keyed.exe" -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/LOG=install.log" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Get-Content install.log -Tail 40; throw "install failed: $($p.ExitCode)" }
+          $imp = "$env:APPDATA\BlogVideo\import.key"
+          if (-not (Test-Path $imp)) { Get-Content install.log -Tail 60; throw "import.key was not written by the installer" }
+          $env:BROWSER = "none"
+          $app = Start-Process -FilePath "$env:ProgramFiles\BlogVideo\BlogVideo.exe" -PassThru
+          $ok = $false
+          for ($i = 0; $i -lt 60; $i++) {
+            Start-Sleep -Seconds 1
+            try { $info = Invoke-RestMethod "http://127.0.0.1:8765/api/info"; if ($info.has_api_key) { $ok = $true; break } } catch {}
+          }
+          Stop-Process -Id $app.Id -Force -ErrorAction SilentlyContinue
+          if (-not $ok) { throw "installed app did not pick up the bundled key" }
+          if (Test-Path $imp) { throw "import.key was not removed after import" }
+          $cfg = Get-Content "$env:APPDATA\BlogVideo\config.json" -Raw
+          if ($cfg -notmatch "anthropic_api_key_enc") { throw "key not stored encrypted" }
+          if ($cfg -match "sk-ant-ci-fake") { throw "key stored in plaintext" }
+          Write-Host "keyed installer OK: key imported and stored with DPAPI"
+          Start-Process -FilePath "$env:ProgramFiles\BlogVideo\unins000.exe" -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES" -Wait
+          Remove-Item keyed.exe -Force
+
       - uses: actions/upload-artifact@v4
         with:
           name: BlogVideo-Setup
