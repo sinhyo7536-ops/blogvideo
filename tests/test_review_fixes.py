@@ -45,7 +45,7 @@ def test_resolve_bgm_only_from_music_dirs(tmp_path, monkeypatch):
 def test_api_rejects_bgm_path_with_message(tmp_path, monkeypatch):
     monkeypatch.setenv("BLOGVIDEO_HOME", str(tmp_path))
     m = JobManager(tmp_path / "jobs", fake_steps())
-    c = TestClient(create_app(m), client=("192.168.0.5", 1))
+    c = TestClient(create_app(m), client=("127.0.0.1", 1), base_url="http://127.0.0.1:8765")
     r = c.post("/api/jobs", json={"url": "https://blog.naver.com/a/1", "options": {"bgm": "\\\\h\\s\\a.mp3"}})
     assert r.status_code == 400 and r.json()["message"] == "입력한 내용이 올바르지 않아요. 다시 확인해 주세요."
     m.stop()
@@ -79,7 +79,7 @@ def test_finished_at_changes_on_rerender(tmp_path):
 def test_api_hides_local_paths(tmp_path, monkeypatch):
     monkeypatch.setenv("BLOGVIDEO_HOME", str(tmp_path))
     m = JobManager(tmp_path / "jobs", fake_steps())
-    c = TestClient(create_app(m), client=("192.168.0.5", 1))
+    c = TestClient(create_app(m), client=("127.0.0.1", 1), base_url="http://127.0.0.1:8765")
     j = c.post("/api/jobs", json={"url": "https://blog.naver.com/a/1", "options": {}}).json()
     wait_stage(m, j["id"], "ready")
     c.post(f"/api/jobs/{j['id']}/render")

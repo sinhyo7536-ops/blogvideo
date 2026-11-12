@@ -15,6 +15,7 @@ import httpx
 from app.paths import config_dir
 
 DEFAULT_PORT = 8765
+HOST = "127.0.0.1"  # 이 PC에서만 접속 가능
 START_FAILED = "프로그램을 시작하지 못했어요. 컴퓨터를 다시 켠 뒤 실행해 주세요."
 
 
@@ -38,7 +39,7 @@ def _setup_logging() -> None:
 def _already_running(port: int) -> bool:
     try:
         r = httpx.get(f"http://127.0.0.1:{port}/api/info", timeout=1.5)
-        return r.status_code == 200 and "lan_url" in r.json()
+        return r.status_code == 200 and "has_api_key" in r.json()
     except (httpx.HTTPError, ValueError):
         return False
 
@@ -46,7 +47,7 @@ def _already_running(port: int) -> bool:
 def _port_free(port: int) -> bool:
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
-        s.bind(("0.0.0.0", port))
+        s.bind((HOST, port))
         return True
     except OSError:
         return False
@@ -54,11 +55,16 @@ def _port_free(port: int) -> bool:
         s.close()
 
 
+def server_config(app, port: int):
+    import uvicorn
+
+    return uvicorn.Config(app, host=HOST, port=port, log_config=None, access_log=False)
+
+
 def _serve(app, port: int, on_ready: Callable[[], None]) -> None:
     import uvicorn
 
-    server = uvicorn.Server(uvicorn.Config(app, host="0.0.0.0", port=port, log_config=None,
-                                           access_log=False))
+    server = uvicorn.Server(server_config(app, port))
 
     def watch():
         while not server.started and not server.should_exit:

@@ -1,7 +1,7 @@
 # 블로그 영상 변환기 (blogvideo)
 
 네이버 블로그 글 링크를 넣으면 블로그 사진 + 큰 자막 + AI 성우 + 배경음악으로 된 유튜브용 영상(MP4)을 만드는 로컬 웹 앱입니다.
-윈도우 PC에서 실행되고, 같은 와이파이의 휴대폰 브라우저에서도 똑같이 쓸 수 있습니다.
+윈도우 PC에서 실행되며, 보안을 위해 그 PC 안(127.0.0.1)에서만 열립니다. API 키는 윈도우 DPAPI로 암호화해 저장합니다.
 
 - 사용자용: [docs/사용설명서.md](docs/사용설명서.md)
 - 배포자용: [docs/배포안내.md](docs/배포안내.md)
@@ -17,7 +17,8 @@
 | `app/captions.py` | Pillow로 자막 PNG 생성 (줄바꿈, 외곽선) |
 | `app/render.py` | FFmpeg로 장면 클립(확대 효과·자막·페이드) → 합치기 → 배경음악 믹스 |
 | `app/jobs.py` | 작업 큐(한 번에 하나), 상태 저장, 재시도 |
-| `app/main.py` | FastAPI 라우트, 설정은 localhost에서만 |
+| `app/main.py` | FastAPI 라우트, 이 PC·이 화면에서 온 요청만 허용 (Host/Origin 검사) |
+| `app/config.py`, `app/secret.py` | 설정 저장, API 키 DPAPI 암호화 |
 | `app/web/` | 모바일 우선 화면 (빌드 도구 없음) |
 | `app/launcher.py` | 실행 진입점: 서버 시작 + 브라우저 열기 |
 | `packaging/` | PyInstaller spec, Inno Setup 스크립트, 배경음악 생성기 |

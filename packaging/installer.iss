@@ -40,9 +40,8 @@ Name: "{group}\{#AppName} 제거"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: desktopicon
 
 [Run]
-; 같은 와이파이의 휴대폰이 접속할 수 있도록 개인(사설) 네트워크에서만 8765 포트를 연다
+; 이 프로그램은 PC 안(127.0.0.1)에서만 열리므로 방화벽을 열지 않는다. 예전 버전이 만든 규칙은 지운다.
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""BlogVideo"""; Flags: runhidden waituntilterminated
-Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""BlogVideo"" dir=in action=allow protocol=TCP localport=8765 profile=private"; Flags: runhidden waituntilterminated
 Filename: "{app}\{#AppExe}"; Description: "지금 실행하기"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]

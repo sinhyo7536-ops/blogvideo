@@ -16,13 +16,14 @@ from app import config
 from app.errors import UserError
 from app.jobs import JobManager, Steps
 from app.models import JobState, RenderOptions, VideoScript
-from app.netinfo import lan_ip, qr_svg
 from app.paths import jobs_dir, music_dirs, resource_path, user_music_dir
 from app.scraper.naver import validate_url
 
 PORT = 8765
 NO_KEY = "설정에서 API 키를 입력해 주세요."
 PC_ONLY = "설정은 PC에서만 바꿀 수 있어요."
+LOCAL_ONLY = "이 프로그램은 설치된 PC에서만 쓸 수 있어요."
+_LOCAL_HOSTS = {"127.0.0.1", "localhost", "[::1]"}
 UNKNOWN = "알 수 없는 오류가 났어요. 다시 시도해 주세요."
 BAD_MUSIC = "MP3 파일만 올릴 수 있어요."
 BAD_INPUT = "입력한 내용이 올바르지 않아요. 다시 확인해 주세요."
@@ -86,6 +87,23 @@ def create_app(manager: JobManager | None = None) -> FastAPI:
     app.state.manager = manager
     web = resource_path("app/web")
 
+    @app.middleware("http")
+    async def _local_only(request: Request, call_next):
+        """이 PC에서, 이 프로그램 화면에서 온 요청만 받는다.
+
+        - 다른 기기(같은 와이파이 포함) 차단
+        - 다른 웹사이트가 주소를 바꿔치기(DNS 리바인딩)하거나 몰래 보내는 요청(CSRF) 차단
+        """
+        host = (request.headers.get("host") or "").rsplit(":", 1)[0].lower()
+        origin = request.headers.get("origin")
+        bad_origin = False
+        if origin and request.method not in ("GET", "HEAD", "OPTIONS"):
+            o = origin.split("://", 1)[-1].rsplit(":", 1)[0].lower()
+            bad_origin = o not in _LOCAL_HOSTS
+        if not _is_local(request) or host not in _LOCAL_HOSTS or bad_origin:
+            return JSONResponse({"message": LOCAL_ONLY}, status_code=403)
+        return await call_next(request)
+
     @app.exception_handler(UserError)
     async def _user_error(request: Request, e: UserError):
         return JSONResponse({"message": e.message}, status_code=400)
@@ -116,9 +134,7 @@ def create_app(manager: JobManager | None = None) -> FastAPI:
 
     @app.get("/api/info")
     def info(request: Request):
-        url = f"http://{lan_ip()}:{PORT}"
-        return {"lan_url": url, "qr_svg": qr_svg(url),
-                "has_api_key": bool(config.load_config().get("anthropic_api_key")),
+        return {"has_api_key": bool(config.load_config().get("anthropic_api_key")),
                 "is_local": _is_local(request)}
 
     @app.post("/api/jobs")

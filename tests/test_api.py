@@ -20,7 +20,7 @@ def make_client(home, ip="127.0.0.1", key="sk-ant-test1234"):
     from app.config import load_config
     steps.api_key = lambda: load_config().get("anthropic_api_key", "")
     m = JobManager(home / "jobs", steps)
-    return TestClient(create_app(m), client=(ip, 50000)), m
+    return TestClient(create_app(m), client=(ip, 50000), base_url="http://127.0.0.1:8765"), m
 
 
 def test_index_served(home):
@@ -30,18 +30,15 @@ def test_index_served(home):
 
 
 def test_info(home):
-    c, m = make_client(home, ip="192.168.0.5")
+    c, m = make_client(home)
     d = c.get("/api/info").json()
-    assert d["lan_url"].startswith("http://") and d["lan_url"].endswith(":8765")
-    assert d["qr_svg"].lstrip().startswith("<")
-    assert d["has_api_key"] is True and d["is_local"] is False
+    assert d == {"has_api_key": True, "is_local": True}
     m.stop()
 
 
 def test_settings_forbidden_from_lan(home):
     c, m = make_client(home, ip="192.168.0.5")
-    r = c.put("/api/settings", json={"anthropic_api_key": "x"})
-    assert r.status_code == 403 and r.json()["message"] == "설정은 PC에서만 바꿀 수 있어요."
+    assert c.put("/api/settings", json={"anthropic_api_key": "x"}).status_code == 403
     assert c.get("/api/settings").status_code == 403
     m.stop()
 
@@ -79,7 +76,7 @@ def _done_job(c, m):
 
 
 def test_full_api_flow(home):
-    c, m = make_client(home, ip="192.168.0.9")
+    c, m = make_client(home)
     job_id = _done_job(c, m)
     d = c.get(f"/api/jobs/{job_id}").json()
     assert d["stage"] == "done" and "video_path" not in d

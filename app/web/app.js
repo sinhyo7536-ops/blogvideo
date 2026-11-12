@@ -40,8 +40,6 @@ async function api(method, path, body) {
 function show(view) {
   state.view = view;
   VIEWS.forEach((v) => $("view-" + v).classList.toggle("hidden", v !== view));
-  const wide = window.matchMedia("(min-width: 900px)").matches;
-  $("phone-panel").classList.toggle("hidden", !(state.info && state.info.is_local && (wide || view === "home")));
   window.scrollTo(0, 0);
 }
 
@@ -81,14 +79,10 @@ document.querySelectorAll(".seg").forEach((seg) => {
 // ---------- 초기화 ----------
 async function loadInfo() {
   state.info = await api("GET", "/api/info");
-  $("qr").innerHTML = state.info.qr_svg; // 서버가 만든 SVG
-  $("lan-url").textContent = state.info.lan_url;
   $("open-settings").classList.toggle("hidden", !state.info.is_local);
   const notice = $("key-notice");
   if (!state.info.has_api_key) {
-    notice.textContent = state.info.is_local
-      ? "처음 한 번, 설정에서 Claude API 키를 입력해 주세요."
-      : "PC에서 먼저 API 키를 입력해야 해요.";
+    notice.textContent = "처음 한 번, 설정에서 Claude API 키를 입력해 주세요.";
     if (state.info.is_local) {
       const b = document.createElement("button");
       b.type = "button";
