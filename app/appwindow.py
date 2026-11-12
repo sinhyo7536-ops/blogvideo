@@ -1,6 +1,6 @@
 """프로그램 화면을 브라우저 탭이 아닌 '앱 창'(주소창·탭 없는 창)으로 연다.
 
-윈도우에 기본으로 있는 Edge(없으면 Chrome)의 --app 모드를 쓴다.
+Chrome의 --app 모드를 쓰고, Chrome이 없으면 윈도우에 기본으로 있는 Edge를 쓴다(사용자 결정: Chrome 우선).
 """
 from __future__ import annotations
 
@@ -17,14 +17,14 @@ log = logging.getLogger(__name__)
 
 def _candidates() -> list[Path]:
     out = []
-    for env in ("ProgramFiles(x86)", "ProgramFiles", "LOCALAPPDATA"):
-        base = os.environ.get(env)
-        if base:
-            out.append(Path(base) / "Microsoft" / "Edge" / "Application" / "msedge.exe")
     for env in ("ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA"):
         base = os.environ.get(env)
         if base:
             out.append(Path(base) / "Google" / "Chrome" / "Application" / "chrome.exe")
+    for env in ("ProgramFiles(x86)", "ProgramFiles", "LOCALAPPDATA"):
+        base = os.environ.get(env)
+        if base:
+            out.append(Path(base) / "Microsoft" / "Edge" / "Application" / "msedge.exe")
     return out
 
 

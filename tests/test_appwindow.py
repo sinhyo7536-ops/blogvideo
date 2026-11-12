@@ -9,7 +9,7 @@ from tests.fakes import fake_steps
 
 
 # ---- 브라우저 찾기 / 앱 모드로 열기 -------------------------------------------
-def test_find_edge_first(tmp_path, monkeypatch):
+def test_find_chrome_first(tmp_path, monkeypatch):
     edge = tmp_path / "x86" / "Microsoft" / "Edge" / "Application" / "msedge.exe"
     chrome = tmp_path / "pf" / "Google" / "Chrome" / "Application" / "chrome.exe"
     for p in (edge, chrome):
@@ -18,10 +18,19 @@ def test_find_edge_first(tmp_path, monkeypatch):
     monkeypatch.setenv("ProgramFiles(x86)", str(tmp_path / "x86"))
     monkeypatch.setenv("ProgramFiles", str(tmp_path / "pf"))
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
+    assert appwindow.find_app_browser() == str(chrome)
+
+
+def test_find_edge_when_no_chrome(tmp_path, monkeypatch):
+    edge = tmp_path / "x86" / "Microsoft" / "Edge" / "Application" / "msedge.exe"
+    edge.parent.mkdir(parents=True)
+    edge.write_text("")
+    for k, v in {"ProgramFiles(x86)": "x86", "ProgramFiles": "pf", "LOCALAPPDATA": "local"}.items():
+        monkeypatch.setenv(k, str(tmp_path / v))
     assert appwindow.find_app_browser() == str(edge)
 
 
-def test_find_chrome_when_no_edge(tmp_path, monkeypatch):
+def test_find_chrome_installed_for_one_user(tmp_path, monkeypatch):
     chrome = tmp_path / "local" / "Google" / "Chrome" / "Application" / "chrome.exe"
     chrome.parent.mkdir(parents=True)
     chrome.write_text("")
