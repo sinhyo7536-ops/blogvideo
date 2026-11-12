@@ -21,12 +21,28 @@ class BlogPost(BaseModel):
     blog_name: str = ""
 
 
+MOTIONS = ("zoom_in", "zoom_out", "pan_left", "pan_right", "pan_up", "pan_down", "still")
+TRANSITIONS = ("fade", "slide", "push", "circle", "black", "zoom", "wipe")
+
+
 class Scene(BaseModel):
     text: str
     image_index: int | None
     duration: float | None = None
     audio_path: str | None = None
     place: str = ""  # 장소 이름표 (예: 통영 동피랑). 비면 표시 안 함
+    motion: str = "auto"      # 사진 움직임: auto 또는 MOTIONS 중 하나
+    transition: str = "auto"  # 이 장면으로 들어올 때의 전환: auto 또는 TRANSITIONS 중 하나
+
+    @field_validator("motion", mode="before")
+    @classmethod
+    def _known_motion(cls, v):
+        return v if v in MOTIONS else "auto"
+
+    @field_validator("transition", mode="before")
+    @classmethod
+    def _known_transition(cls, v):
+        return v if v in TRANSITIONS else "auto"
 
 
 class VideoScript(BaseModel):
@@ -62,8 +78,9 @@ class RenderOptions(BaseModel):
         return v
 
 
-Stage = Literal["queued", "scraping", "scripting", "ready", "tts", "rendering", "done", "error"]
-ScriptMode = Literal["api", "auto", "gemini"]
+Stage = Literal["queued", "scraping", "loaded", "scripting", "ready", "tts", "rendering", "done", "error"]
+# load: 글·사진만 불러온 상태(아직 작성 방법을 고르지 않음), manual: 직접 작성
+ScriptMode = Literal["api", "auto", "gemini", "load", "manual"]
 
 
 class JobState(BaseModel):
@@ -77,6 +94,6 @@ class JobState(BaseModel):
     script: VideoScript | None = None
     options: RenderOptions = Field(default_factory=RenderOptions)
     video_path: str | None = None
-    failed_phase: Literal["prepare", "render"] | None = None
+    failed_phase: Literal["prepare", "script", "render"] | None = None
     finished_at: float | None = None
     created_at: float = Field(default_factory=time.time)

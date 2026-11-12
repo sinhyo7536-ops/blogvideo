@@ -159,3 +159,24 @@ dialog::backdrop { background: rgba(0,0,0,.45); }
 @media (min-width: 720px) {
   .edit-options.style-options { grid-template-columns: 1fr 1fr; }
 }
+
+/* 불러온 글·사진, 작성 방법 고르기, 장면 도구 */
+.source-title { font-size: 1.15rem; font-weight: 700; margin: .2rem 0; overflow-wrap: anywhere; }
+.photo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: .4rem; max-height: 320px; overflow-y: auto; }
+.photo-grid.small { grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); max-height: 200px; margin: .5rem 0; }
+.photo-grid .photo { aspect-ratio: 4 / 3; min-height: 0; padding: 0; border: 1px solid var(--line); border-radius: 8px; background-size: cover; background-position: center; background-color: #eef1f6; }
+.source-text { max-height: 260px; overflow-y: auto; border: 1px solid var(--line); border-radius: 12px; padding: .2rem .9rem; background: #fff; }
+.source-text p { margin: .7rem 0; overflow-wrap: anywhere; }
+.choice { display: grid; gap: .8rem; margin: .6rem 0 1rem; }
+.choice-card { border: 1px solid var(--line); border-radius: var(--radius); padding: 1rem; display: grid; gap: .6rem; align-content: start; }
+.choice-card h3 { margin: 0; font-size: 1.1rem; }
+.choice-card p { margin: 0; }
+.source-panel { border: 1px solid var(--line); border-radius: 12px; padding: .6rem .8rem; margin: .5rem 0 1rem; }
+.source-panel summary { font-weight: 600; cursor: pointer; min-height: 32px; }
+.panel-text { display: grid; gap: .4rem; max-height: 260px; overflow-y: auto; }
+.panel-text .para { text-align: left; white-space: normal; overflow-wrap: anywhere; font-weight: 400; min-height: 44px; padding: .5rem .7rem; }
+.scene-effects { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; }
+.scene-effects select { min-width: 0; font-size: .92rem; }
+@media (min-width: 720px) {
+  .choice { grid-template-columns: 1fr 1fr; }
+}

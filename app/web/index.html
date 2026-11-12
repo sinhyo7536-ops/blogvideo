@@ -17,82 +17,58 @@
   <div class="notice hidden" id="key-notice"></div>
 
   <main class="layout">
-    <!-- 1. 링크 입력 -->
+    <!-- 1. 블로그 불러오기 -->
     <section id="view-home" class="view hidden">
-      <h1>블로그 글로 영상 만들기</h1>
-      <p class="muted">네이버 블로그에 쓴 여행 글 주소를 넣으면 사진·자막·목소리가 들어간 여행 영상을 만들어 드려요.</p>
+      <h1>여행 블로그 글로 영상 만들기</h1>
+      <p class="muted">네이버 블로그에 쓴 여행 글 주소를 넣으면 글과 사진을 불러와요. 그다음 AI 추천대로 만들지, 직접 만들지 고를 수 있어요.</p>
 
       <label class="field">
         <span>네이버 블로그 글 주소</span>
         <input id="url" type="url" inputmode="url" autocomplete="off" placeholder="https://blog.naver.com/...">
       </label>
 
-      <fieldset class="field">
-        <legend>대본 만드는 방법</legend>
-        <div class="seg stack" data-name="mode">
-          <button type="button" data-value="api" class="on">Claude(유료)</button>
-          <button type="button" data-value="gemini">Gemini(무료)</button>
-          <button type="button" data-value="auto">AI 없이(무료)</button>
-        </div>
-        <p class="muted" id="mode-help"></p>
-      </fieldset>
-
-      <fieldset class="field">
-        <legend>영상 스타일</legend>
-        <div class="seg" data-name="template">
-          <button type="button" data-value="clean" class="on">깔끔</button>
-          <button type="button" data-value="mood">감성</button>
-          <button type="button" data-value="vlog">브이로그</button>
-        </div>
-        <p class="muted" id="template-help"></p>
-      </fieldset>
-
-      <fieldset class="field">
-        <legend>화면 전환·사진 움직임</legend>
-        <div class="seg" data-name="effects">
-          <button type="button" data-value="auto" class="on">다양하게</button>
-          <button type="button" data-value="soft">부드럽게</button>
-        </div>
-      </fieldset>
-
-      <fieldset class="field">
-        <legend>영상 모양</legend>
-        <div class="seg" data-name="aspect">
-          <button type="button" data-value="16:9" class="on">가로 영상(유튜브)</button>
-          <button type="button" data-value="9:16">세로 영상(쇼츠)</button>
-        </div>
-      </fieldset>
-
-      <fieldset class="field">
-        <legend>화질</legend>
-        <div class="seg" data-name="quality">
-          <button type="button" data-value="720p">720p(빠름)</button>
-          <button type="button" data-value="1080p" class="on">1080p(기본)</button>
-          <button type="button" data-value="1440p">1440p(고화질)</button>
-        </div>
-      </fieldset>
-
-      <fieldset class="field">
-        <legend>성우 목소리</legend>
-        <div class="seg" data-name="voice">
-          <button type="button" data-value="female" class="on">여자 목소리</button>
-          <button type="button" data-value="male">남자 목소리</button>
-        </div>
-      </fieldset>
-
-      <label class="field">
-        <span>배경음악</span>
-        <select id="bgm"></select>
-      </label>
-
       <p class="error-text hidden" id="home-error" role="alert"></p>
-      <button type="button" class="primary big" id="btn-script">대본 만들기</button>
+      <button type="button" class="primary big" id="btn-load">블로그 불러오기</button>
+    </section>
+
+    <!-- 1-2. 불러온 글·사진 확인, 작성 방법 고르기 -->
+    <section id="view-source" class="view hidden">
+      <h1>불러온 블로그 글</h1>
+      <p class="source-title" id="source-title"></p>
+      <p class="muted" id="source-meta"></p>
+
+      <h2>사진</h2>
+      <div id="source-photos" class="photo-grid"></div>
+      <h2>글</h2>
+      <div id="source-text" class="source-text"></div>
+
+      <h2>영상을 어떻게 만들까요?</h2>
+      <div class="choice">
+        <div class="choice-card">
+          <h3>추천대로 작성</h3>
+          <p class="muted">AI가 글과 사진을 보고 장면을 나누고, 장면에 맞는 사진·자막·움직임·전환을 골라 줘요. 만든 뒤에 고칠 수 있어요.</p>
+          <div class="seg stack" data-name="mode">
+            <button type="button" data-value="api" class="on">Claude(유료)</button>
+            <button type="button" data-value="gemini">Gemini(무료)</button>
+            <button type="button" data-value="auto">AI 없이(무료)</button>
+          </div>
+          <p class="muted" id="mode-help"></p>
+          <button type="button" class="primary big" id="btn-recommend">추천대로 작성</button>
+        </div>
+        <div class="choice-card">
+          <h3>직접 작성</h3>
+          <p class="muted">사진과 글을 직접 골라 장면을 하나씩 만들어요. 자막도 원하는 대로 직접 써요.</p>
+          <button type="button" class="ghost big" id="btn-manual">직접 작성</button>
+        </div>
+      </div>
+      <p class="error-text hidden" id="source-error" role="alert"></p>
+      <button type="button" class="ghost" id="btn-source-back">다른 글 불러오기</button>
     </section>
 
     <!-- 2. 장면 편집 -->
     <section id="view-edit" class="view hidden">
-      <h1>대본 고치기</h1>
-      <p class="muted">자막을 고치고, 사진을 바꾸고, 순서를 정리해 주세요. 자막은 성우가 그대로 읽어요.</p>
+      <h1 id="edit-title">대본 고치기</h1>
+      <p class="muted" id="edit-hint">자막을 고치고, 사진을 바꾸고, 순서를 정리해 주세요. 자막은 성우가 그대로 읽어요.</p>
       <div class="edit-options">
         <div class="seg small" data-name="aspect">
           <button type="button" data-value="16:9">가로</button>
@@ -120,6 +96,7 @@
           <button type="button" data-value="soft">부드럽게</button>
         </div>
       </div>
+      <p class="muted" id="template-help"></p>
 
       <h2>시작 화면과 제목 띠</h2>
       <label class="field"><span>여행 제목 <small class="muted">시작 화면·왼쪽 위 제목 띠·썸네일에 들어가요</small></span>
@@ -133,8 +110,18 @@
       </div>
 
       <h2>장면</h2>
+      <details class="source-panel" id="source-panel">
+        <summary>블로그 글·사진에서 가져오기</summary>
+        <p class="muted">글 한 토막이나 사진을 누르면 그 내용으로 새 장면이 맨 아래에 생겨요.</p>
+        <div id="panel-photos" class="photo-grid small"></div>
+        <div id="panel-text" class="panel-text"></div>
+      </details>
+      <p class="muted hidden" id="empty-scenes">아직 장면이 없어요. 위의 "블로그 글·사진에서 가져오기"에서 고르거나, 아래 "+ 장면 추가"를 눌러 직접 써 보세요.</p>
       <ol id="scenes" class="scenes"></ol>
-      <button type="button" class="ghost" id="btn-add-scene">+ 장면 추가</button>
+      <div class="row">
+        <button type="button" class="ghost" id="btn-add-scene">+ 장면 추가</button>
+        <button type="button" class="ghost" id="btn-rewrite">작성 방법 다시 고르기</button>
+      </div>
 
       <h2>유튜브에 올릴 정보</h2>
       <label class="field"><span>제목 <small class="count" id="title-count"></small></span>

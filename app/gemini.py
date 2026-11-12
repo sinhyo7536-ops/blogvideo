@@ -7,8 +7,8 @@ from google import genai
 from google.genai import errors, types
 
 from app.errors import UserError
-from app.models import BlogPost, VideoScript
-from app.script import SYSTEM, ScriptDraft, _user_message, draft_to_script
+from app.models import MOTIONS, TRANSITIONS, BlogPost, VideoScript
+from app.script import SYSTEM, ScriptDraft, _user_message, draft_to_script, photos_for_ai
 
 log = logging.getLogger(__name__)
 
@@ -33,8 +33,10 @@ SCHEMA = {
             "items": {
                 "type": "object",
                 "properties": {"text": {"type": "string"}, "image_index": {"type": "integer"},
-                               "place": {"type": "string"}},
-                "required": ["text", "image_index", "place"],
+                               "place": {"type": "string"},
+                               "motion": {"type": "string", "enum": list(MOTIONS)},
+                               "transition": {"type": "string", "enum": list(TRANSITIONS)}},
+                "required": ["text", "image_index", "place", "motion", "transition"],
             },
         },
         "yt_title": {"type": "string"},
@@ -63,13 +65,20 @@ def generate_script_gemini(post: BlogPost, api_key: str, client=None) -> VideoSc
         response_mime_type="application/json",
         response_json_schema=SCHEMA,
     )
+    contents = _user_message(post)
+    photos = photos_for_ai(post)
+    if photos:  # 글 + 사진(번호와 함께)
+        contents = [contents + "\n\n아래에 사진을 번호와 함께 붙입니다."]
+        for i, data in photos:
+            contents.append(f"사진 {i}번")
+            contents.append(types.Part.from_bytes(data=data, mime_type="image/jpeg"))
     last_problem = ""
     bad_json = 0
     models = list(MODELS)
     while models:
         model = models[0]
         try:
-            resp = client.models.generate_content(model=model, contents=_user_message(post), config=cfg)
+            resp = client.models.generate_content(model=model, contents=contents, config=cfg)
         except errors.ClientError as e:
             log.warning("gemini %s client error %s: %s", model, e.code, e)
             if e.code == 404:

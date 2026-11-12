@@ -84,7 +84,11 @@ def default_steps() -> Steps:
 class CreateJob(BaseModel):
     url: str
     options: RenderOptions = RenderOptions()
-    mode: Literal["api", "auto", "gemini"] = "api"
+    mode: Literal["api", "auto", "gemini", "load"] = "api"   # load: 글·사진만 불러오기
+
+
+class WriteMode(BaseModel):
+    mode: Literal["api", "auto", "gemini", "manual"]
 
 
 class FreeMode(BaseModel):
@@ -178,6 +182,14 @@ def create_app(manager: JobManager | None = None) -> FastAPI:
         log.exception("unhandled error")
         return JSONResponse({"message": UNKNOWN}, status_code=500)
 
+    def need_key(mode: str) -> None:
+        if mode == "api" and not manager.steps.api_key():
+            raise UserError(NO_KEY)
+        if mode == "gemini" and not manager.steps.gemini_key():
+            from app.gemini import NO_KEY as GEMINI_NO_KEY
+
+            raise UserError(GEMINI_NO_KEY)
+
     def pc_only(request: Request):
         if not _is_local(request):
             return JSONResponse({"message": PC_ONLY}, status_code=403)
@@ -207,13 +219,14 @@ def create_app(manager: JobManager | None = None) -> FastAPI:
     @app.post("/api/jobs")
     def create_job(body: CreateJob):
         url = validate_url(body.url)
-        if body.mode == "api" and not manager.steps.api_key():
-            raise UserError(NO_KEY)
-        if body.mode == "gemini" and not manager.steps.gemini_key():
-            from app.gemini import NO_KEY as GEMINI_NO_KEY
-
-            raise UserError(GEMINI_NO_KEY)
+        need_key(body.mode)
         return _public(manager.create(url, body.options, body.mode))
+
+    @app.post("/api/jobs/{job_id}/write")
+    def write(job_id: str, body: WriteMode):
+        """불러온 글로 대본 만들기: 추천대로(api/gemini/auto) 또는 직접 작성(manual)."""
+        need_key(body.mode)
+        return _public(manager.write(job_id, body.mode))
 
     @app.post("/api/jobs/{job_id}/free-mode")
     def free_mode(job_id: str, body: FreeMode):
@@ -236,11 +249,25 @@ def create_app(manager: JobManager | None = None) -> FastAPI:
         return _public(manager.retry(job_id))
 
     @app.get("/api/jobs/{job_id}/image/{index}")
-    def image(job_id: str, index: int):
+    def image(job_id: str, index: int, small: int = 0):
         s = manager.get(job_id)
         if not s.post or not 0 <= index < len(s.post.images) or not s.post.images[index].local_path:
             return JSONResponse({"message": "사진이 없어요."}, status_code=404)
-        return FileResponse(s.post.images[index].local_path, media_type="image/jpeg")
+        path = Path(s.post.images[index].local_path)
+        if small:  # 화면용 작은 사진 (원본은 최대 3840px라 목록에 그대로 쓰면 무겁다)
+            thumb = path.with_name(f"small_{index:02d}.jpg")
+            if not thumb.exists():
+                try:
+                    from PIL import Image, ImageOps
+
+                    with Image.open(path) as im:
+                        img = ImageOps.exif_transpose(im).convert("RGB")
+                        img.thumbnail((480, 480))
+                        img.save(thumb, quality=80)
+                except OSError:
+                    thumb = path
+            path = thumb
+        return FileResponse(path, media_type="image/jpeg", headers={"Cache-Control": "max-age=3600"})
 
     @app.get("/api/jobs/{job_id}/video")
     def video(job_id: str, download: int = 0):

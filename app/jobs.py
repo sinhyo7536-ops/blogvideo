@@ -13,7 +13,7 @@ from typing import Callable
 
 from app.errors import UserError
 from app.autoscript import auto_script
-from app.models import JobState, RenderOptions, VideoScript
+from app.models import BlogPost, JobState, RenderOptions, VideoScript
 
 log = logging.getLogger(__name__)
 
@@ -21,6 +21,7 @@ UNKNOWN = "알 수 없는 오류가 났어요. 다시 시도해 주세요."
 INTERRUPTED = "작업이 중간에 멈췄어요. 다시 시도해 주세요."
 BUSY = "지금은 바꿀 수 없어요. 진행 중인 작업이 끝난 뒤 다시 해 주세요."
 NO_SCRIPT = "대본이 아직 없어요."
+NO_POST = "먼저 블로그 글을 불러와 주세요."
 
 _ACTIVE = {"queued", "scraping", "scripting", "tts", "rendering"}
 
@@ -37,6 +38,16 @@ class Steps:
     channel_name: Callable[[], str] = lambda: ""   # 설정의 채널 이름 (비면 블로그 이름)
     gemini_script: Callable | None = None
     gemini_key: Callable[[], str] = lambda: ""
+
+
+def blank_script(post: BlogPost) -> VideoScript:
+    """직접 작성용 빈 대본: 장면은 비우고 유튜브 정보만 글에서 채워 둔다."""
+    from app.autoscript import _tags
+    from app.script import short_title
+
+    title = post.title.strip()
+    return VideoScript(scenes=[], yt_title=title[:60], yt_description=f"원문: {post.url}", yt_tags=_tags(title),
+                       intro_title=short_title(title) if title else "")
 
 
 class JobManager:
@@ -59,7 +70,10 @@ class JobManager:
             except ValueError:
                 continue
             if s.stage in _ACTIVE:
-                phase = "render" if s.stage in ("tts", "rendering") or (s.stage == "queued" and s.script) else "prepare"
+                if s.stage in ("tts", "rendering") or (s.stage == "queued" and s.script):
+                    phase = "render"
+                else:
+                    phase = "script" if s.post else "prepare"
                 s = s.model_copy(update={"stage": "error", "message": INTERRUPTED, "failed_phase": phase})
             self._jobs[s.id] = s
             self._save(s)
@@ -134,6 +148,20 @@ class JobManager:
         self._queue.put((job_id, phase))
         return s
 
+    def write(self, job_id: str, mode: str) -> JobState:
+        """불러온 글로 대본 만들기. manual이면 빈 대본으로 바로 편집 화면으로, 나머지는 AI/자동 작성."""
+        s = self.get(job_id)
+        if s.stage in _ACTIVE:
+            raise UserError(BUSY)
+        if s.post is None:
+            raise UserError(NO_POST)
+        if mode == "manual":
+            return self._set(job_id, mode="manual", script=blank_script(s.post), stage="ready", progress=1.0,
+                             message="", failed_phase=None)
+        s = self._set(job_id, mode=mode, stage="queued", progress=0.0, message="", failed_phase=None)
+        self._queue.put((job_id, "script"))
+        return s
+
     def use_free_mode(self, job_id: str, mode: str) -> JobState:
         """API 대본이 실패했을 때 무료 방법으로 이어서 하기."""
         s = self.get(job_id)
@@ -182,6 +210,8 @@ class JobManager:
         try:
             if phase == "prepare":
                 self._prepare(job_id)
+            elif phase == "script":
+                self._write(job_id)
             else:
                 self._render(job_id)
         except UserError as e:
@@ -195,8 +225,15 @@ class JobManager:
         post = self.steps.fetch_post(s.url)
         self._set(job_id, progress=0.15)
         post = self.steps.download_images(post, self.dir(job_id) / "images")
-        self._set(job_id, post=post, stage="scripting", progress=0.3)
-        mode = self.get(job_id).mode
+        if self.get(job_id).mode == "load":   # 불러오기만: 작성 방법은 사용자가 고른다
+            self._set(job_id, post=post, stage="loaded", progress=1.0)
+            return
+        self._set(job_id, post=post)
+        self._write(job_id)
+
+    def _write(self, job_id: str) -> None:
+        s = self._set(job_id, stage="scripting", progress=0.3)
+        post, mode = s.post, s.mode
         if mode == "auto":
             script = self.steps.auto_script(post)
         elif mode == "gemini":

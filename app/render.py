@@ -31,7 +31,9 @@ INTRO_SEC = 3.0
 OUTRO_SEC = 3.5
 SOFT_SEC = 0.6
 CAPTION_IN = 0.35  # 자막이 아래에서 떠오르는 시간
-MOTIONS = ("zoom_in", "pan_right", "zoom_out", "pan_left", "zoom_in", "pan_up", "zoom_out", "pan_down")
+MOTIONS = ("zoom_in", "pan_right", "zoom_out", "pan_left", "zoom_in", "pan_up", "zoom_out", "pan_down")  # 자동일 때 순서
+XFADE = {"fade": "fade", "slide": "slideleft", "push": "smoothleft", "circle": "circleopen",
+         "black": "fadeblack", "zoom": "zoomin", "wipe": "wiperight"}
 THANKS = "시청해 주셔서 감사합니다"
 SUBSCRIBE = "구독과 좋아요 부탁드려요"
 
@@ -71,6 +73,7 @@ class Segment:
     caption: Path | None = None       # 아래에서 떠오르는 자막
     audio: str | None = None          # 없으면 무음
     motion: str = "zoom_in"
+    transition: str = ""              # 이 토막으로 들어올 때의 xfade 종류. 비면 스타일의 기본 순서
 
 
 def _prepare_bg(src: str, out: Path, size: tuple[int, int]) -> Path:
@@ -91,7 +94,9 @@ def _motion_chain(motion: str, length: float, size: tuple[int, int]) -> str:
     w, h = size
     sw, sh = w * SUPERSAMPLE, h * SUPERSAMPLE
     L = f"{length:.3f}"
-    if motion in ("zoom_in", "zoom_out"):
+    if motion == "still":
+        chain = f"scale={sw}:{sh}:flags=bicubic"
+    elif motion in ("zoom_in", "zoom_out"):
         grow = f"{ZOOM}*t/{L}" if motion == "zoom_in" else f"{ZOOM}*(1-t/{L})"
         chain = (f"scale=w='trunc({sw}*(1+{grow})/2)*2':h=-2:eval=frame:flags=bicubic,"
                  f"crop={sw}:{sh}")
@@ -180,9 +185,12 @@ def _build_segments(post: BlogPost, script: VideoScript, options: RenderOptions,
         if options.title_bar and (title or scene.place):
             overlays.append(visuals.render_overlay_png(title, scene.place, w, h, workdir / f"overlay_{i:02d}.png", tpl))
         caption = render_caption_png(scene.text, w, h, workdir / f"caption_{i:02d}.png", tpl)
-        motion = "zoom_in" if options.effects == "soft" else MOTIONS[i % len(MOTIONS)]
+        if scene.motion != "auto":       # 장면에서 직접 고른(또는 AI가 추천한) 움직임이 먼저
+            motion = scene.motion
+        else:
+            motion = "zoom_in" if options.effects == "soft" else MOTIONS[i % len(MOTIONS)]
         segs.append(Segment(duration=scene.duration, bg=bg, overlays=overlays, caption=caption,
-                            audio=scene.audio_path, motion=motion))
+                            audio=scene.audio_path, motion=motion, transition=XFADE.get(scene.transition, "")))
     if options.outro:
         segs.append(card("outro", next((p for p in reversed(photos) if p), None), OUTRO_SEC,
                          THANKS, SUBSCRIBE, options.channel))
@@ -208,7 +216,7 @@ def _join(clips: list[Path], segs: list[Segment], cross: float, transitions: tup
     offset = 0.0
     for i in range(1, n):
         offset += segs[i - 1].duration
-        kind = transitions[(i - 1) % len(transitions)]
+        kind = segs[i].transition or transitions[(i - 1) % len(transitions)]
         graph += f"[{last}][c{i}]xfade=transition={kind}:duration={cross:.3f}:offset={offset:.3f}[x{i}];"
         last = f"x{i}"
     graph += (f"[{last}]fade=t=in:st=0:d={FADE},fade=t=out:st={max(0.0, total - FADE):.3f}:d={FADE},"

@@ -88,9 +88,12 @@ def test_full_flow(live_server, browser, vp):
     page.wait_for_selector("text=블로그 글로 영상 만들기")
     shot(page, f"{tag}1_home")
     page.fill("#url", "https://blog.naver.com/a/1")
-    page.click("text=세로 영상(쇼츠)")
-    page.click("button:has-text('대본 만들기')")
+    page.click("#btn-load")
+    page.wait_for_selector("#view-source:not(.hidden)", timeout=10000)
+    shot(page, f"{tag}1b_source")
+    page.click("#btn-recommend")
     page.wait_for_selector(".scene-card", timeout=10000)
+    page.click('#view-edit .seg[data-name="aspect"] button[data-value="9:16"]')
     shot(page, f"{tag}2_edit")
     page.fill(".scene-card textarea >> nth=0", "고친 자막")
     page.click("button:has-text('영상 만들기')")
@@ -108,7 +111,7 @@ def test_error_and_retry(live_server, browser):
     page = browser.new_page(viewport={"width": 390, "height": 844})
     page.goto(live_server)
     page.fill("#url", "https://tistory.com/1")
-    page.click("button:has-text('대본 만들기')")
+    page.click("#btn-load")
     page.wait_for_selector("text=네이버 블로그 글 주소를 넣어 주세요.")
 
 
@@ -128,8 +131,19 @@ def _to_edit(page, base):
     page.evaluate("localStorage.clear()")
     page.reload()
     page.fill("#url", "https://blog.naver.com/a/1")
-    page.click("button:has-text('대본 만들기')")
+    page.click("#btn-load")
+    page.wait_for_selector("#view-source:not(.hidden)", timeout=10000)
+    page.click("#btn-recommend")
     page.wait_for_selector(".scene-card", timeout=10000)
+
+
+def _to_source(page, base):
+    page.goto(base)
+    page.evaluate("localStorage.clear()")
+    page.reload()
+    page.fill("#url", "https://blog.naver.com/a/1")
+    page.click("#btn-load")
+    page.wait_for_selector("#view-source:not(.hidden)", timeout=10000)
 
 
 def test_home_button_leaves_edit(live_server, browser):
@@ -190,8 +204,10 @@ def _start_job(page, base, mode_label):
     page.evaluate("localStorage.clear()")
     page.reload()
     page.fill("#url", "https://blog.naver.com/a/1")
-    page.click(f"text={mode_label}")
-    page.click("#btn-script")
+    page.click("#btn-load")
+    page.wait_for_selector("#view-source:not(.hidden)", timeout=10000)
+    page.click(f"#view-source >> text={mode_label}")
+    page.click("#btn-recommend")
 
 
 def test_free_auto_flow(live_server, browser):
@@ -212,14 +228,14 @@ def test_api_error_offers_free_modes(live_server_api_fails, browser):
 
 def test_no_claude_paste_option(live_server, browser):
     page = browser.new_page(viewport={"width": 390, "height": 844})
-    page.goto(live_server)
+    _to_source(page, live_server)
     page.wait_for_selector("text=AI 없이(무료)")
     assert page.locator("text=붙여넣기").count() == 0
 
 
 def test_gemini_key_and_mode_in_ui(live_server, browser):
     page = browser.new_page(viewport={"width": 1280, "height": 800})
-    page.goto(live_server)
+    _to_source(page, live_server)
     page.wait_for_selector("text=Gemini(무료)")
     page.click("#open-settings")
     page.fill("#gemini-key", "AIzaSyUI-TEST-4321")
@@ -230,17 +246,15 @@ def test_gemini_key_and_mode_in_ui(live_server, browser):
 
 def test_quality_choice_is_sent(live_server, browser):
     page = browser.new_page(viewport={"width": 390, "height": 844})
-    page.goto(live_server)
-    page.evaluate("localStorage.clear()")
-    page.reload()
-    page.fill("#url", "https://blog.naver.com/a/1")
-    page.click("text=1440p(고화질)")
-    page.click("#btn-script")
-    page.wait_for_selector(".scene-card", timeout=10000)
-    # 편집 화면에도 선택한 화질이 표시됨
-    assert page.locator('#view-edit .seg[data-name="quality"] button.on').inner_text() == "1440p"
+    _to_edit(page, live_server)
+    page.click('#view-edit .seg[data-name="quality"] button[data-value="1440p"]')
+    page.click("button:has-text('영상 만들기')")
+    page.wait_for_selector("#view-result:not(.hidden)", timeout=10000)
     job = page.evaluate("fetch('/api/jobs/' + localStorage.getItem('blogvideo.jobId')).then(r => r.json())")
     assert job["options"]["quality"] == "1440p"
+    page.click("#btn-reedit")   # 다시 고치러 가도 선택한 화질이 표시됨
+    page.wait_for_selector("#view-edit:not(.hidden)")
+    assert page.locator('#view-edit .seg[data-name="quality"] button.on').inner_text() == "1440p"
 
 
 def test_edit_options_fit_on_phone(live_server, browser):
@@ -283,16 +297,14 @@ def _job(page):
 
 def test_template_and_effects_are_sent(live_server, browser):
     page = browser.new_page(viewport={"width": 1280, "height": 800})
-    page.goto(live_server)
-    page.fill("#url", "https://blog.naver.com/a/1")
-    page.click('#view-home .seg[data-name="template"] button[data-value="vlog"]')
+    _to_edit(page, live_server)
+    page.click('#view-edit .seg[data-name="template"] button[data-value="vlog"]')
     assert "형광펜" in page.inner_text("#template-help")
-    page.click('#view-home .seg[data-name="effects"] button[data-value="soft"]')
-    page.click("button:has-text('대본 만들기')")
-    page.wait_for_selector(".scene-card", timeout=10000)
+    page.click('#view-edit .seg[data-name="effects"] button[data-value="soft"]')
+    page.click("button:has-text('영상 만들기')")
+    page.wait_for_selector("#view-result:not(.hidden)", timeout=10000)
     job = _job(page)
     assert (job["options"]["template"], job["options"]["effects"]) == ("vlog", "soft")
-    assert page.locator('#view-edit .seg[data-name="template"] button.on').inner_text() == "브이로그"
 
 
 def test_place_intro_and_toggles_are_saved(live_server, browser):
@@ -361,3 +373,78 @@ def test_channel_name_saved_in_settings(live_server, browser):
     page.reload()
     page.click("#open-settings")
     page.wait_for_function("document.getElementById('channel-name').value === '모두의 여행노트'")
+
+
+# ---------- 기능 나누기: 불러오기 → 추천대로 / 직접 작성 ----------
+def test_home_only_asks_for_the_address(live_server, browser):
+    page = browser.new_page(viewport={"width": 390, "height": 844})
+    page.goto(live_server)
+    page.wait_for_selector("#btn-load")
+    assert page.locator("#view-home .seg").count() == 0
+    assert page.inner_text("#btn-load") == "블로그 불러오기"
+
+
+def test_loaded_post_shows_photos_text_and_two_choices(live_server, browser):
+    page = browser.new_page(viewport={"width": 390, "height": 844})
+    _to_source(page, live_server)
+    assert "테스트" in page.inner_text("#source-title")
+    assert page.inner_text("#source-meta") == "사진 1장 · 글 1문단"
+    assert page.locator("#source-photos .photo").count() == 1
+    assert page.locator("#source-text p").count() == 1
+    assert page.is_visible("#btn-recommend") and page.is_visible("#btn-manual")
+    assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+    assert _job(page)["script"] is None         # 아직 대본을 만들지 않음
+    page.reload()                                # 새로고침해도 이 화면
+    page.wait_for_selector("#view-source:not(.hidden)", timeout=5000)
+
+
+def test_manual_writing_from_blog_text_and_photo(live_server, browser):
+    page = browser.new_page(viewport={"width": 1280, "height": 800})
+    _to_source(page, live_server)
+    page.click("#btn-manual")
+    page.wait_for_selector("#view-edit:not(.hidden)", timeout=5000)
+    assert page.inner_text("#edit-title") == "직접 작성"
+    assert page.locator(".scene-card").count() == 0 and page.is_visible("#empty-scenes")
+    assert page.evaluate("document.getElementById('source-panel').open")
+    page.click("button:has-text('영상 만들기')")              # 장면 없이 만들 수 없음
+    page.wait_for_selector("#edit-error:not(.hidden)")
+    page.click("#panel-text .para >> nth=0")                  # 글 한 토막 → 장면
+    page.click("#panel-photos .photo >> nth=0")               # 사진 → 장면
+    page.click("#btn-add-scene")                              # 빈 장면
+    assert page.locator(".scene-card").count() == 3 and not page.is_visible("#empty-scenes")
+    assert page.input_value(".scene-card textarea >> nth=0") == "p"
+    page.fill(".scene-card textarea >> nth=1", "내가 직접 쓴 자막")
+    page.select_option(".scene-card select.motion >> nth=1", "pan_left")
+    page.select_option(".scene-card select.transition >> nth=1", "circle")
+    page.click("button:has-text('영상 만들기')")
+    page.wait_for_selector("#view-result:not(.hidden)", timeout=10000)
+    job = _job(page)
+    assert job["mode"] == "manual" and len(job["script"]["scenes"]) == 2      # 빈 장면은 빠짐
+    second = job["script"]["scenes"][1]
+    assert (second["text"], second["motion"], second["transition"]) == ("내가 직접 쓴 자막", "pan_left", "circle")
+    page.click("#btn-reedit")
+    page.wait_for_selector("#view-edit:not(.hidden)")
+    assert page.input_value(".scene-card select.motion >> nth=1") == "pan_left"
+
+
+def test_recommended_scenes_have_effect_pickers(live_server, browser):
+    page = browser.new_page(viewport={"width": 390, "height": 844})
+    _to_edit(page, live_server)
+    assert page.inner_text("#edit-title") == "대본 고치기"
+    assert not page.evaluate("document.getElementById('source-panel').open")
+    assert page.input_value(".scene-card select.motion >> nth=0") == "auto"
+    assert page.locator(".scene-card select.transition option").count() == 8
+    assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+
+
+def test_choose_writing_method_again(live_server, browser):
+    page = browser.new_page(viewport={"width": 1280, "height": 800})
+    _to_edit(page, live_server)
+    page.click("#btn-rewrite")
+    page.wait_for_selector("#view-source:not(.hidden)")
+    seen = []
+    page.on("dialog", lambda d: (seen.append(d.message), d.accept()))
+    page.click("#btn-manual")
+    page.wait_for_selector("#edit-title:has-text('직접 작성')", timeout=5000)
+    assert seen and "새로" in seen[0]
+    assert page.locator(".scene-card").count() == 0
