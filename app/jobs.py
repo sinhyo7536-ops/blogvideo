@@ -34,6 +34,9 @@ class Steps:
     render_video: Callable
     api_key: Callable[[], str]
     auto_script: Callable = auto_script
+    # [임시] Gemini 무료 API
+    gemini_script: Callable | None = None
+    gemini_key: Callable[[], str] = lambda: ""
 
 
 class JobManager:
@@ -188,8 +191,11 @@ class JobManager:
         self._set(job_id, progress=0.15)
         post = self.steps.download_images(post, self.dir(job_id) / "images")
         self._set(job_id, post=post, stage="scripting", progress=0.3)
-        if self.get(job_id).mode == "auto":
+        mode = self.get(job_id).mode
+        if mode == "auto":
             script = self.steps.auto_script(post)
+        elif mode == "gemini":  # [임시]
+            script = self.steps.gemini_script(post, self.steps.gemini_key())
         else:
             script = self.steps.generate_script(post, self.steps.api_key())
         self._set(job_id, script=script, stage="ready", progress=1.0)

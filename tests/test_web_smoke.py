@@ -180,7 +180,7 @@ def test_make_keyed_installer(live_server, browser, tmp_path):
         page.click("#btn-keyed")
     d = dl.value
     assert "키포함" in d.suggested_filename and d.suggested_filename.endswith(".exe")
-    assert keybundle.read_trailer(open(d.path(), "rb").read()) == "sk-ant-test1234"
+    assert keybundle.read_trailer(open(d.path(), "rb").read()) == {"anthropic_api_key": "sk-ant-test1234"}
     page.wait_for_selector("text=만들었어요")
     shot(page, "d5_keyed")
 
@@ -203,7 +203,7 @@ def test_free_auto_flow(live_server, browser):
 
 def test_api_error_offers_free_modes(live_server_api_fails, browser):
     page = browser.new_page(viewport={"width": 390, "height": 844})
-    _start_job(page, live_server_api_fails, "AI 자동(유료)")
+    _start_job(page, live_server_api_fails, "Claude(유료)")
     page.wait_for_selector("#view-error:not(.hidden)", timeout=10000)
     shot(page, "m7_error_free")
     page.click("#btn-free-auto")
@@ -215,3 +215,14 @@ def test_no_claude_paste_option(live_server, browser):
     page.goto(live_server)
     page.wait_for_selector("text=AI 없이(무료)")
     assert page.locator("text=붙여넣기").count() == 0
+
+
+def test_gemini_key_and_mode_in_ui(live_server, browser):
+    page = browser.new_page(viewport={"width": 1280, "height": 800})
+    page.goto(live_server)
+    page.wait_for_selector("text=Gemini(무료)")
+    page.click("#open-settings")
+    page.fill("#gemini-key", "AIzaSyUI-TEST-4321")
+    page.click("#btn-save-gemini")
+    page.wait_for_selector("text=지금 저장된 Gemini 키: AIzaSy…4321")
+    shot(page, "d8_settings_gemini")

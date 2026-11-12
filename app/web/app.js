@@ -6,6 +6,7 @@ const MODE_KEY = "blogvideo.mode";
 const MODE_HELP = {
   api: "Claude API로 자연스러운 대본을 자동으로 써요. 영상 1개당 약 100~200원이 들어요.",
   auto: "블로그 문장을 프로그램이 장면으로 나눠요. 무료예요. 다음 화면에서 자막을 다듬어 주세요.",
+  gemini: "Google Gemini 무료 API로 대본을 자동으로 써요. 하루 사용 횟수 제한이 있어요. (설정에 Gemini 키 필요)",
 };
 const STAGE_LABEL = {
   queued: "순서를 기다리는 중",
@@ -93,9 +94,10 @@ async function loadInfo() {
   state.info = await api("GET", "/api/info");
   $("open-settings").classList.toggle("hidden", !state.info.is_local);
   const notice = $("key-notice");
-  setMode(localStorage.getItem(MODE_KEY) || (state.info.has_api_key ? "api" : "auto"));
-  if (!state.info.has_api_key) {
-    notice.textContent = "API 키가 없어도 무료 방법(AI 없이)으로 쓸 수 있어요. 유료 'AI 자동'은 설정에서 키를 넣어야 해요.";
+  const fallback = state.info.has_api_key ? "api" : state.info.has_gemini_key ? "gemini" : "auto";
+  setMode(localStorage.getItem(MODE_KEY) || fallback);
+  if (!state.info.has_api_key && !state.info.has_gemini_key) {
+    notice.textContent = "API 키가 없어도 'AI 없이(무료)'로 쓸 수 있어요. Claude나 Gemini를 쓰려면 설정에서 키를 넣어 주세요.";
     if (state.info.is_local) {
       const b = document.createElement("button");
       b.type = "button";
@@ -394,7 +396,7 @@ document.querySelectorAll("[data-copy]").forEach((b) => {
 // ---------- 오류 ----------
 function openError(job) {
   $("error-message").textContent = job.message || "알 수 없는 오류가 났어요. 다시 시도해 주세요.";
-  const canFree = !!job.post && job.failed_phase === "prepare" && job.mode === "api";
+  const canFree = !!job.post && job.failed_phase === "prepare" && (job.mode === "api" || job.mode === "gemini");
   $("free-options").classList.toggle("hidden", !canFree);
   show("error");
 }
@@ -417,10 +419,13 @@ async function openSettings() {
   try {
     const s = await api("GET", "/api/settings");
     $("api-key-current").textContent = s.anthropic_api_key ? `지금 저장된 키: ${s.anthropic_api_key}` : "아직 저장된 키가 없어요.";
+    $("gemini-key-current").textContent = s.gemini_api_key ? `지금 저장된 Gemini 키: ${s.gemini_api_key}` : "아직 저장된 Gemini 키가 없어요.";
   } catch (e) {
     setError("settings-error", e.message);
   }
   $("api-key").value = "";
+  $("gemini-key").value = "";
+  $("gemini-ok").classList.add("hidden");
   show("settings");
 }
 
@@ -433,6 +438,22 @@ async function saveKey() {
     $("api-key").value = "";
     $("api-key-current").textContent = `지금 저장된 키: ${s.anthropic_api_key}`;
     $("settings-ok").classList.remove("hidden");
+    await loadInfo();
+  } catch (e) {
+    setError("settings-error", e.message);
+  }
+}
+
+// [임시] Gemini 무료 API 키
+async function saveGeminiKey() {
+  setError("settings-error", "");
+  const key = $("gemini-key").value.trim();
+  if (!key) return setError("settings-error", "Gemini API 키를 입력해 주세요.");
+  try {
+    const s = await api("PUT", "/api/settings", { gemini_api_key: key });
+    $("gemini-key").value = "";
+    $("gemini-key-current").textContent = `지금 저장된 Gemini 키: ${s.gemini_api_key}`;
+    $("gemini-ok").classList.remove("hidden");
     await loadInfo();
   } catch (e) {
     setError("settings-error", e.message);
@@ -535,6 +556,7 @@ $("btn-save-key").onclick = saveKey;
 $("music-file").addEventListener("change", uploadMusic);
 $("btn-settings-back").onclick = leaveSettings;
 $("btn-keyed").onclick = makeKeyedInstaller;
+$("btn-save-gemini").onclick = saveGeminiKey; // [임시]
 $("btn-free-auto").onclick = () => useFreeMode("auto");
 $("picker-close").onclick = () => $("picker").close();
 

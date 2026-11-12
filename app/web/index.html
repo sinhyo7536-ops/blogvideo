@@ -28,8 +28,10 @@
 
       <fieldset class="field">
         <legend>대본 만드는 방법</legend>
-        <div class="seg" data-name="mode">
-          <button type="button" data-value="api" class="on">AI 자동(유료)</button>
+        <div class="seg stack" data-name="mode">
+          <button type="button" data-value="api" class="on">Claude(유료)</button>
+          <!-- [임시] Gemini 무료 API -->
+          <button type="button" data-value="gemini">Gemini(무료)</button>
           <button type="button" data-value="auto">AI 없이(무료)</button>
         </div>
         <p class="muted" id="mode-help"></p>
@@ -143,6 +145,16 @@
       <button type="button" class="primary" id="btn-save-key">저장</button>
       <p class="ok-text hidden" id="settings-ok">저장했어요</p>
 
+      <!-- [임시] Gemini 무료 API -->
+      <label class="field">
+        <span>Gemini API 키 (무료)</span>
+        <input id="gemini-key" type="password" autocomplete="off" placeholder="AIza...">
+        <small class="muted" id="gemini-key-current"></small>
+        <small class="muted">aistudio.google.com/apikey 에서 무료로 발급받을 수 있어요. 하루 사용 횟수 제한이 있어요.</small>
+      </label>
+      <button type="button" class="primary" id="btn-save-gemini">Gemini 키 저장</button>
+      <p class="ok-text hidden" id="gemini-ok">저장했어요</p>
+
       <h2>배경음악 추가</h2>
       <p class="muted">사용 허락이 확인된 MP3만 올려 주세요. (예: 유튜브 스튜디오 오디오 보관함)</p>
       <input id="music-file" type="file" accept=".mp3,audio/mpeg">
@@ -150,7 +162,7 @@
       <p class="error-text hidden" id="settings-error" role="alert"></p>
 
       <h2>지인용 설치 파일 만들기</h2>
-      <p class="muted">지금 저장된 API 키를 설치 파일에 넣어 줘요. 이 파일로 설치하면 키를 따로 넣지 않아도 바로 쓸 수 있어요.</p>
+      <p class="muted">지금 저장된 API 키(Claude·Gemini)를 설치 파일에 넣어 줘요. 이 파일로 설치하면 키를 따로 넣지 않아도 바로 쓸 수 있어요.</p>
       <ol class="muted steps">
         <li>받아 둔 <b>BlogVideo-Setup.exe</b> 를 고르세요.</li>
         <li>"키 넣은 설치 파일 만들기"를 누르면 <b>블로그영상변환기_설치_키포함.exe</b> 가 저장돼요.</li>

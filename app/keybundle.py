@@ -10,6 +10,7 @@
 """
 from __future__ import annotations
 
+import json
 import logging
 
 from app import config
@@ -38,24 +39,39 @@ def decode_key(text: str) -> str:
     return _xor(bytes.fromhex(text.strip())).decode("utf-8")
 
 
+def encode_keys(keys: dict) -> str:
+    return encode_key(json.dumps({k: v for k, v in keys.items() if v}, separators=(",", ":")))
+
+
+def decode_keys(text: str) -> dict:
+    """키 묶음 해석. 예전 형식(Claude 키 하나)도 읽는다."""
+    raw = decode_key(text)
+    if raw.startswith("{"):
+        data = json.loads(raw)
+        return {k: v for k, v in data.items() if k in config.SECRET_KEYS and isinstance(v, str) and v}
+    return {"anthropic_api_key": raw}
+
+
 def _strip(data: bytes) -> bytes:
     if len(data) > TRAILER_SIZE and data[-TRAILER_SIZE:].startswith(MAGIC):
         return data[:-TRAILER_SIZE]
     return data
 
 
-def read_trailer(data: bytes) -> str | None:
+def read_trailer(data: bytes) -> dict | None:
     tail = data[-TRAILER_SIZE:]
     if len(tail) != TRAILER_SIZE or not tail.startswith(MAGIC):
         return None
     n = int(tail[6:10])
-    return decode_key(tail[10:10 + n].decode("ascii"))
+    return decode_keys(tail[10:10 + n].decode("ascii"))
 
 
-def embed(installer: bytes, key: str) -> bytes:
+def embed(installer: bytes, keys: dict | str) -> bytes:
     if not installer.startswith(b"MZ") or _SIGNATURE not in installer:
         raise UserError(NOT_INSTALLER)
-    enc = encode_key(key).encode("ascii")
+    if isinstance(keys, str):
+        keys = {"anthropic_api_key": keys}
+    enc = encode_keys(keys).encode("ascii")
     trailer = MAGIC + f"{len(enc):04d}".encode("ascii") + enc
     if len(trailer) > TRAILER_SIZE:
         raise UserError("API 키가 너무 길어요.")
@@ -68,15 +84,15 @@ def import_pending_key() -> bool:
     if not f.exists():
         return False
     try:
-        key = decode_key(f.read_text("ascii"))
-        if not key.startswith("sk-"):
-            raise ValueError("not an api key")
+        keys = decode_keys(f.read_text("ascii"))
+        if not keys or not all(v.isprintable() and len(v) >= 6 for v in keys.values()):
+            raise ValueError("no usable key")
     except (ValueError, UnicodeError, OSError):
         log.warning("ignored invalid key import file")
         f.unlink(missing_ok=True)
         return False
     data = config.load_config()
-    data["anthropic_api_key"] = key
+    data.update(keys)
     config.save_config(data)
     f.unlink(missing_ok=True)
     log.info("imported API key from installer")

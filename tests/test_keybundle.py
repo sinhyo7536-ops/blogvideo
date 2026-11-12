@@ -22,13 +22,13 @@ def test_embed_appends_fixed_trailer():
     assert len(out) == len(FAKE_SETUP) + keybundle.TRAILER_SIZE
     assert out[-keybundle.TRAILER_SIZE:].startswith(b"BVKEY1")
     assert b"sk-ant-xyz" not in out
-    assert keybundle.read_trailer(out) == "sk-ant-xyz"
+    assert keybundle.read_trailer(out) == {"anthropic_api_key": "sk-ant-xyz"}
 
 
 def test_reembed_replaces_old_key():
     once = keybundle.embed(FAKE_SETUP, "sk-ant-old")
     twice = keybundle.embed(once, "sk-ant-new")
-    assert len(twice) == len(once) and keybundle.read_trailer(twice) == "sk-ant-new"
+    assert len(twice) == len(once) and keybundle.read_trailer(twice) == {"anthropic_api_key": "sk-ant-new"}
 
 
 @pytest.mark.parametrize("data", [b"not an exe", b"MZ" + b"\x00" * 100])
@@ -70,7 +70,7 @@ def test_api_builds_keyed_installer(client):
     r = client.post("/api/keyed-installer", files={"file": ("BlogVideo-Setup.exe", FAKE_SETUP, "application/octet-stream")})
     assert r.status_code == 200
     assert "filename*=UTF-8''" in r.headers["content-disposition"]
-    assert keybundle.read_trailer(r.content) == "sk-ant-mykey777"
+    assert keybundle.read_trailer(r.content) == {"anthropic_api_key": "sk-ant-mykey777"}
 
 
 def test_api_keyed_installer_needs_key(client):

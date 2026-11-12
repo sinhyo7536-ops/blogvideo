@@ -37,17 +37,20 @@ def default_steps() -> Steps:
     from app.render import render_video
     from app.scraper.naver import download_images, fetch_post
     from app.script import generate_script
+    from app.gemini import generate_script_gemini  # [임시]
     from app.tts import synthesize_all
 
     return Steps(fetch_post=fetch_post, download_images=download_images, generate_script=generate_script,
                  synthesize_all=synthesize_all, render_video=render_video,
-                 api_key=lambda: config.load_config().get("anthropic_api_key", ""))
+                 api_key=lambda: config.load_config().get("anthropic_api_key", ""),
+                 gemini_script=generate_script_gemini,
+                 gemini_key=lambda: config.load_config().get("gemini_api_key", ""))
 
 
 class CreateJob(BaseModel):
     url: str
     options: RenderOptions = RenderOptions()
-    mode: Literal["api", "auto"] = "api"
+    mode: Literal["api", "auto", "gemini"] = "api"  # gemini: [임시]
 
 
 class FreeMode(BaseModel):
@@ -60,7 +63,8 @@ class UpdateScript(BaseModel):
 
 
 class Settings(BaseModel):
-    anthropic_api_key: str
+    anthropic_api_key: str | None = None
+    gemini_api_key: str | None = None  # [임시]
 
 
 def _is_local(request: Request) -> bool:
@@ -80,7 +84,9 @@ def _public(s: JobState) -> dict:
 
 
 def _mask(key: str) -> str:
-    return f"sk-ant-…{key[-4:]}" if key else ""
+    if not key:
+        return ""
+    return f"{key[:6]}…{key[-4:]}"
 
 
 def _safe_filename(title: str) -> str:
@@ -141,7 +147,9 @@ def create_app(manager: JobManager | None = None) -> FastAPI:
 
     @app.get("/api/info")
     def info(request: Request):
-        return {"has_api_key": bool(config.load_config().get("anthropic_api_key")),
+        cfg = config.load_config()
+        return {"has_api_key": bool(cfg.get("anthropic_api_key")),
+                "has_gemini_key": bool(cfg.get("gemini_api_key")),  # [임시]
                 "is_local": _is_local(request)}
 
     @app.post("/api/jobs")
@@ -149,6 +157,10 @@ def create_app(manager: JobManager | None = None) -> FastAPI:
         url = validate_url(body.url)
         if body.mode == "api" and not manager.steps.api_key():
             raise UserError(NO_KEY)
+        if body.mode == "gemini" and not manager.steps.gemini_key():  # [임시]
+            from app.gemini import NO_KEY as GEMINI_NO_KEY
+
+            raise UserError(GEMINI_NO_KEY)
         return _public(manager.create(url, body.options, body.mode))
 
     @app.post("/api/jobs/{job_id}/free-mode")
@@ -215,13 +227,14 @@ def create_app(manager: JobManager | None = None) -> FastAPI:
             return r
         from app.keybundle import embed
 
-        key = config.load_config().get("anthropic_api_key", "")
-        if not key:
+        cfg = config.load_config()
+        keys = {k: cfg.get(k, "") for k in config.SECRET_KEYS if cfg.get(k)}
+        if not keys:
             raise UserError("먼저 위에서 API 키를 저장해 주세요.")
         data = await file.read()
         if len(data) > 400 * 1024 * 1024:
             raise UserError("파일이 너무 커요. 블로그 영상 변환기 설치 파일을 골라 주세요.")
-        out = embed(data, key)
+        out = embed(data, keys)
         name = quote("블로그영상변환기_설치_키포함.exe")
         return Response(out, media_type="application/octet-stream", headers={
             "Content-Disposition": f"attachment; filename=\"BlogVideo-Setup-with-key.exe\"; filename*=UTF-8''{name}"})
@@ -230,15 +243,19 @@ def create_app(manager: JobManager | None = None) -> FastAPI:
     def get_settings(request: Request):
         if (r := pc_only(request)) is not None:
             return r
-        return {"anthropic_api_key": _mask(config.load_config().get("anthropic_api_key", ""))}
+        cfg = config.load_config()
+        return {k: _mask(cfg.get(k, "")) for k in config.SECRET_KEYS}
 
     @app.put("/api/settings")
     def put_settings(request: Request, body: Settings):
         if (r := pc_only(request)) is not None:
             return r
         data = config.load_config()
-        data["anthropic_api_key"] = body.anthropic_api_key.strip()
+        for k in config.SECRET_KEYS:
+            v = getattr(body, k)
+            if v and v.strip():
+                data[k] = v.strip()
         config.save_config(data)
-        return {"anthropic_api_key": _mask(data["anthropic_api_key"])}
+        return {k: _mask(data.get(k, "")) for k in config.SECRET_KEYS}
 
     return app

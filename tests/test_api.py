@@ -32,7 +32,7 @@ def test_index_served(home):
 def test_info(home):
     c, m = make_client(home)
     d = c.get("/api/info").json()
-    assert d == {"has_api_key": True, "is_local": True}
+    assert d == {"has_api_key": True, "has_gemini_key": False, "is_local": True}
     m.stop()
 
 

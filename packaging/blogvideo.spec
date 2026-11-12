@@ -24,7 +24,8 @@ hiddenimports = (
     collect_submodules("uvicorn")
     + collect_submodules("edge_tts")
     + collect_submodules("anthropic")
-    + ["app.main", "app.render", "app.tts", "app.script", "app.scraper.naver", "truststore"]
+    + collect_submodules("google.genai")  # [임시] Gemini
+    + ["app.main", "app.render", "app.tts", "app.script", "app.scraper.naver", "truststore", "app.gemini"]
 )
 
 a = Analysis(

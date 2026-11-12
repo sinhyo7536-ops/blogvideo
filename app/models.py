@@ -52,7 +52,7 @@ class RenderOptions(BaseModel):
 
 
 Stage = Literal["queued", "scraping", "scripting", "ready", "tts", "rendering", "done", "error"]
-ScriptMode = Literal["api", "auto"]
+ScriptMode = Literal["api", "auto", "gemini"]  # gemini: [임시]
 
 
 class JobState(BaseModel):

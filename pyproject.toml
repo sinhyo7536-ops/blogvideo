@@ -19,6 +19,7 @@ dependencies = [
   "pydantic>=2.6",
   "python-multipart>=0.0.9",
   "truststore>=0.10",
+  "google-genai>=3.2",  # [임시] Gemini 무료 API
 ]
 
 [project.optional-dependencies]

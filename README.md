@@ -14,6 +14,7 @@
 | `app/scraper/naver.py` | 네이버 블로그 글 제목·문단·사진 추출, 사진 다운로드 |
 | `app/script.py` | Claude API(`claude-opus-5-5`, 구조화 출력)로 장면 대본 + 유튜브 제목/설명/태그 생성 |
 | `app/autoscript.py` | AI 없이 블로그 문장을 장면으로 나누기 (무료) |
+| `app/gemini.py` | **[임시]** Gemini 무료 API 대본. 제거 시 이 파일과 코드의 `[임시]` 표시 부분을 지운다 |
 | `app/tts.py` | Edge TTS로 장면별 내레이션 (`ko-KR-SunHiNeural` / `ko-KR-InJoonNeural`) |
 | `app/captions.py` | Pillow로 자막 PNG 생성 (줄바꿈, 외곽선) |
 | `app/render.py` | FFmpeg로 장면 클립(확대 효과·자막·페이드) → 합치기 → 배경음악 믹스 |
