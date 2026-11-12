@@ -89,6 +89,9 @@ def main(port: int = DEFAULT_PORT, opener: Callable[[str], object] = webbrowser.
          serve: Callable = _serve, alert: Callable[[str], None] = _alert) -> int:
     _setup_logging()
     log = logging.getLogger("launcher")
+    from app.netsetup import use_system_certificates
+
+    use_system_certificates()  # 학교·회사 네트워크 인증서(윈도우 등록분) 인정
     try:
         from app.keybundle import import_pending_key
 

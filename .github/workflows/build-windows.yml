@@ -51,7 +51,7 @@ jobs:
       - name: Check real Edge TTS (Korean voices)
         run: |
           $env:PATH = "$PWD\ffmpeg;$env:PATH"
-          python -c "import asyncio, pathlib; from app.tts import synthesize_scene, probe_duration; p = pathlib.Path('tts_check.mp3'); asyncio.run(synthesize_scene('안녕하세요. 블로그 영상 변환기 음성 테스트입니다.', 'ko-KR-SunHiNeural', p)); print('Edge TTS OK, seconds =', probe_duration(p))"
+          python -c "import asyncio, pathlib; from app.netsetup import use_system_certificates; assert use_system_certificates(); from app.tts import synthesize_scene, probe_duration; p = pathlib.Path('tts_check.mp3'); asyncio.run(synthesize_scene('안녕하세요. 블로그 영상 변환기 음성 테스트입니다.', 'ko-KR-SunHiNeural', p)); print('Edge TTS OK, seconds =', probe_duration(p))"
 
       - name: Build app (PyInstaller)
         run: pyinstaller --noconfirm --distpath build/dist --workpath build/work packaging/blogvideo.spec

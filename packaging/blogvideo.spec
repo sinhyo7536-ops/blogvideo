@@ -24,7 +24,7 @@ hiddenimports = (
     collect_submodules("uvicorn")
     + collect_submodules("edge_tts")
     + collect_submodules("anthropic")
-    + ["app.main", "app.render", "app.tts", "app.script", "app.scraper.naver"]
+    + ["app.main", "app.render", "app.tts", "app.script", "app.scraper.naver", "truststore"]
 )
 
 a = Analysis(

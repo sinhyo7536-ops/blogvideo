@@ -9,6 +9,7 @@ import httpx
 from bs4 import BeautifulSoup
 
 from app.errors import UserError
+from app.netsetup import describe_network_error
 from app.models import BlogPost, ImageRef
 
 UA = ("Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 "
@@ -52,7 +53,7 @@ def resolve_url(url: str, client: httpx.Client) -> str:
     try:
         r = client.get(url, follow_redirects=True)
     except httpx.HTTPError as e:
-        raise UserError(OFFLINE) from e
+        raise UserError(describe_network_error(e)) from e
     return str(r.url)
 
 
@@ -96,7 +97,7 @@ def fetch_post(url: str) -> BlogPost:
         try:
             r = c.get(f"https://m.blog.naver.com/{blog_id}/{log_no}")
         except httpx.HTTPError as e:
-            raise UserError(OFFLINE) from e
+            raise UserError(describe_network_error(e)) from e
         if r.status_code != 200:
             raise UserError(UNREADABLE)
         return extract_post(r.text, f"https://blog.naver.com/{blog_id}/{log_no}")

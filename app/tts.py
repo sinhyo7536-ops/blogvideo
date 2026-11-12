@@ -6,6 +6,8 @@ import subprocess
 from pathlib import Path
 from typing import Awaitable, Callable
 
+import logging
+
 import edge_tts
 
 from app.errors import UserError
@@ -16,6 +18,8 @@ from app.procutil import quiet_kwargs
 VOICES = {"female": "ko-KR-SunHiNeural", "male": "ko-KR-InJoonNeural"}
 PAD = 0.4
 FAILED = "음성을 만들지 못했어요. 인터넷 연결을 확인하고 다시 시도해 주세요."
+CERT_HINT = " (보안 인증서 확인에 실패했어요. 학교·회사 네트워크나 보안 프로그램 때문일 수 있어요.)"
+log = logging.getLogger(__name__)
 
 
 def probe_duration(path: Path) -> float:
@@ -43,9 +47,11 @@ def synthesize_all(script: VideoScript, voice_key: str, dest: Path,
                 asyncio.run(synth(scene.text, voice, out))
                 duration = probe_duration(out)
                 break
-            except Exception:
+            except Exception as e:
                 if attempt == 2:
-                    raise UserError(FAILED)
+                    log.warning("tts failed: %s: %s", type(e).__name__, e, exc_info=e)
+                    cert = "CERTIFICATE" in f"{type(e).__name__} {e}".upper()
+                    raise UserError(FAILED + (CERT_HINT if cert else "")) from e
         scenes.append(scene.model_copy(update={"audio_path": str(out), "duration": round(duration + PAD, 3)}))
         if on_progress:
             on_progress((i + 1) / total)
