@@ -336,7 +336,7 @@ async function startRender() {
 
 // ---------- 결과 ----------
 function openResult(job) {
-  const v = `/api/jobs/${job.id}/video?t=${Math.round(job.created_at)}-${job.script.scenes.length}`;
+  const v = `/api/jobs/${job.id}/video?t=${Math.round(job.created_at)}-${job.script.scenes.length}#t=0.6`;
   const video = $("video");
   if (video.dataset.src !== v) {
     video.src = v;
