@@ -22,6 +22,11 @@ INTERRUPTED = "작업이 중간에 멈췄어요. 다시 시도해 주세요."
 BUSY = "지금은 바꿀 수 없어요. 진행 중인 작업이 끝난 뒤 다시 해 주세요."
 NO_SCRIPT = "대본이 아직 없어요."
 NO_POST = "먼저 블로그 글을 불러와 주세요."
+STOPPED = "불러오기를 멈췄어요."
+
+
+class Cancelled(Exception):
+    """사용자가 \"멈추기\"를 눌렀다."""
 
 _ACTIVE = {"queued", "scraping", "scripting", "tts", "rendering"}
 
@@ -36,6 +41,7 @@ class Steps:
     api_key: Callable[[], str]
     auto_script: Callable = auto_script
     channel_name: Callable[[], str] = lambda: ""   # 설정의 채널 이름 (비면 블로그 이름)
+    abort: Callable | None = None           # 돌고 있는 외부 작업(FFmpeg)을 바로 끝낸다
     voice_preview: Callable | None = None   # (목소리, 속도, 저장할 파일) → 파일
     fetch_music: Callable | None = None     # (유튜브 주소, 음악 폴더) → 파일 이름
     gemini_script: Callable | None = None
@@ -60,6 +66,7 @@ class JobManager:
         self._lock = threading.RLock()
         self._jobs: dict[str, JobState] = {}
         self._queue: queue.Queue = queue.Queue()
+        self._cancel: set[str] = set()
         self._load()
         self._worker = threading.Thread(target=self._run, daemon=True, name="job-worker")
         self._worker.start()
@@ -150,6 +157,40 @@ class JobManager:
         self._queue.put((job_id, phase))
         return s
 
+    def cancel(self, job_id: str) -> JobState:
+        """진행 중인 작업을 멈춘다. 영상 만들기는 대본 고치기로, 대본 쓰기는 불러온 글 화면으로 돌아간다.
+        (이어 하기는 없다: 다시 누르면 처음부터 만든다.)"""
+        s = self.get(job_id)
+        if s.stage not in _ACTIVE:
+            return s
+        with self._lock:
+            self._cancel.add(job_id)
+        if self.steps.abort and s.stage in ("tts", "rendering"):
+            try:
+                self.steps.abort()
+            except Exception:
+                log.exception("abort failed")
+        return self.get(job_id)
+
+    def _check(self, job_id: str) -> None:
+        if job_id in self._cancel:
+            raise Cancelled()
+
+    def _tick(self, job_id: str, progress: float) -> None:
+        self._check(job_id)
+        self._set(job_id, progress=progress)
+
+    def _stopped(self, job_id: str, phase: str) -> None:
+        with self._lock:
+            self._cancel.discard(job_id)
+        s = self.get(job_id)
+        if phase == "render":
+            self._set(job_id, stage="ready", progress=1.0, message="", failed_phase=None)
+        elif s.post is not None:
+            self._set(job_id, stage="loaded", progress=1.0, message="", failed_phase=None)
+        else:
+            self._set(job_id, stage="error", message=STOPPED, failed_phase="prepare")
+
     def write(self, job_id: str, mode: str) -> JobState:
         """불러온 글로 대본 만들기. manual이면 빈 대본으로 바로 편집 화면으로, 나머지는 AI/자동 작성."""
         s = self.get(job_id)
@@ -210,15 +251,22 @@ class JobManager:
         if job_id not in self._jobs:
             return
         try:
+            self._check(job_id)   # 순서를 기다리는 동안 멈춘 경우
             if phase == "prepare":
                 self._prepare(job_id)
             elif phase == "script":
                 self._write(job_id)
             else:
                 self._render(job_id)
+        except Cancelled:
+            self._stopped(job_id, phase)
         except UserError as e:
+            if job_id in self._cancel:   # 멈추느라 FFmpeg·음성 만들기가 실패한 것
+                return self._stopped(job_id, phase)
             self._set(job_id, stage="error", message=e.message, failed_phase=phase)
         except Exception:
+            if job_id in self._cancel:
+                return self._stopped(job_id, phase)
             log.exception("job %s failed in %s", job_id, phase)
             self._set(job_id, stage="error", message=UNKNOWN, failed_phase=phase)
 
@@ -226,7 +274,9 @@ class JobManager:
         s = self._set(job_id, stage="scraping", progress=0.0)
         post = self.steps.fetch_post(s.url)
         self._set(job_id, progress=0.15)
+        self._check(job_id)
         post = self.steps.download_images(post, self.dir(job_id) / "images")
+        self._check(job_id)
         if self.get(job_id).mode == "load":   # 불러오기만: 작성 방법은 사용자가 고른다
             self._set(job_id, post=post, stage="loaded", progress=1.0)
             return
@@ -242,16 +292,19 @@ class JobManager:
             script = self.steps.gemini_script(post, self.steps.gemini_key())
         else:
             script = self.steps.generate_script(post, self.steps.api_key())
+        self._check(job_id)   # AI가 쓰는 동안 멈췄으면 결과를 버린다
         self._set(job_id, script=script, stage="ready", progress=1.0)
 
     def _render(self, job_id: str) -> None:
         s = self._set(job_id, stage="tts", progress=0.0)
         script = self.steps.synthesize_all(s.script, s.options.voice, self.dir(job_id) / "audio",
-                                           on_progress=lambda p: self._set(job_id, progress=round(0.2 * p, 3)),
+                                           on_progress=lambda p: self._tick(job_id, round(0.2 * p, 3)),
                                            speed=s.options.speed)
+        self._check(job_id)
         self._set(job_id, script=script, stage="rendering", progress=0.2)
         channel = (self.steps.channel_name() or s.post.blog_name or "").strip()[:40]
         options = s.options.model_copy(update={"channel": channel})
         out = self.steps.render_video(s.post, script, options, self.dir(job_id) / "render",
-                                      on_progress=lambda p: self._set(job_id, progress=round(0.2 + 0.8 * p, 3)))
+                                      on_progress=lambda p: self._tick(job_id, round(0.2 + 0.8 * p, 3)))
+        self._check(job_id)
         self._set(job_id, stage="done", progress=1.0, video_path=str(out), finished_at=time.time())

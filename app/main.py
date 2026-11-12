@@ -67,7 +67,7 @@ class Presence:
 
 
 def default_steps() -> Steps:
-    from app.render import render_video
+    from app.render import render_video, stop_current
     from app.scraper.naver import download_images, fetch_post
     from app.script import generate_script
     from app.gemini import generate_script_gemini
@@ -77,7 +77,7 @@ def default_steps() -> Steps:
     return Steps(fetch_post=fetch_post, download_images=download_images, generate_script=generate_script,
                  synthesize_all=synthesize_all, render_video=render_video,
                  api_key=lambda: config.load_config().get("anthropic_api_key", ""),
-                 gemini_script=generate_script_gemini, voice_preview=preview, fetch_music=fetch_audio,
+                 gemini_script=generate_script_gemini, voice_preview=preview, fetch_music=fetch_audio, abort=stop_current,
                  channel_name=lambda: config.load_config().get("channel_name", ""),
                  gemini_key=lambda: config.load_config().get("gemini_api_key", ""))
 
@@ -253,6 +253,11 @@ def create_app(manager: JobManager | None = None) -> FastAPI:
     @app.post("/api/jobs/{job_id}/render")
     def render(job_id: str):
         return _public(manager.start_render(job_id))
+
+    @app.post("/api/jobs/{job_id}/cancel")
+    def cancel(job_id: str):
+        """진행 중인 작업 멈추기."""
+        return _public(manager.cancel(job_id))
 
     @app.post("/api/jobs/{job_id}/retry")
     def retry(job_id: str):

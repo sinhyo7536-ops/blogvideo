@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import subprocess
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
@@ -55,12 +56,38 @@ def resolve_bgm(name: str | None) -> Path | None:
     return None
 
 
+_proc_lock = threading.Lock()
+_proc: subprocess.Popen | None = None   # 지금 돌고 있는 FFmpeg (작업은 한 번에 하나)
+
+
+def stop_current() -> bool:
+    """돌고 있는 FFmpeg를 바로 끝낸다("만들기 멈추기"). 끝낸 것이 있으면 True."""
+    with _proc_lock:
+        p = _proc
+    if p is None or p.poll() is not None:
+        return False
+    try:
+        p.kill()
+    except OSError:
+        return False
+    return True
+
+
 def _run(args: list[str], log: Path) -> None:
-    r = subprocess.run([ffmpeg_bin(), "-nostdin", "-y", "-hide_banner", "-loglevel", "error", *args],
-                       capture_output=True, text=True, encoding="utf-8", errors="replace", **quiet_kwargs())
-    if r.returncode != 0:
+    global _proc
+    p = subprocess.Popen([ffmpeg_bin(), "-nostdin", "-y", "-hide_banner", "-loglevel", "error", *args],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, encoding="utf-8",
+                         errors="replace", **quiet_kwargs())
+    with _proc_lock:
+        _proc = p
+    try:
+        _, err = p.communicate()
+    finally:
+        with _proc_lock:
+            _proc = None
+    if p.returncode != 0:
         with log.open("a", encoding="utf-8") as f:
-            f.write(" ".join(args) + "\n" + r.stderr + "\n")
+            f.write(" ".join(args) + "\n" + (err or "") + "\n")
         raise UserError(FAILED)
 
 
@@ -152,7 +179,7 @@ def _photo_for(post: BlogPost, image_index: int | None) -> str | None:
 
 
 def _build_segments(post: BlogPost, script: VideoScript, options: RenderOptions, size: tuple[int, int],
-                    workdir: Path) -> list[Segment]:
+                    workdir: Path, on_step: Callable[[float], None] | None = None) -> list[Segment]:
     w, h = size
     big = (w * SUPERSAMPLE, h * SUPERSAMPLE)
     tpl = options.template
@@ -191,6 +218,8 @@ def _build_segments(post: BlogPost, script: VideoScript, options: RenderOptions,
             motion = "zoom_in" if options.effects == "soft" else MOTIONS[i % len(MOTIONS)]
         segs.append(Segment(duration=scene.duration, bg=bg, overlays=overlays, caption=caption,
                             audio=scene.audio_path, motion=motion, transition=XFADE.get(scene.transition, "")))
+        if on_step:   # 사진 준비도 오래 걸릴 수 있어 장면마다 알린다(진행률 표시, 멈추기 확인)
+            on_step((i + 1) / len(script.scenes))
     if options.outro:
         segs.append(card("outro", next((p for p in reversed(photos) if p), None), OUTRO_SEC,
                          THANKS, SUBSCRIBE, options.channel))
@@ -309,7 +338,7 @@ def render_video(post: BlogPost, script: VideoScript, options: RenderOptions, wo
     report = on_progress or (lambda _: None)
     if not script.scenes:
         raise UserError(FAILED)
-    segs = _build_segments(post, script, options, size, workdir)
+    segs = _build_segments(post, script, options, size, workdir, on_step=lambda p: report(round(0.1 * p, 3)))
     tpl = visuals.template(options.template)
     soft = options.effects == "soft"
     cross = min(SOFT_SEC if soft else tpl.transition_sec, min(s.duration for s in segs) / 2)
@@ -318,7 +347,7 @@ def render_video(post: BlogPost, script: VideoScript, options: RenderOptions, wo
     for i, seg in enumerate(segs):
         length = seg.duration + (cross if i < len(segs) - 1 else 0.0)
         clips.append(_segment_clip(i, seg, length, size, workdir, log))
-        report(round(0.7 * (i + 1) / len(segs), 3))
+        report(round(0.1 + 0.6 * (i + 1) / len(segs), 3))
 
     out = workdir / "output.mp4"
     _join(clips, segs, cross, transitions, resolve_bgm(options.bgm), options.bgm_volume, out, log,

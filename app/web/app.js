@@ -28,9 +28,14 @@ const STAGE_LABEL = {
   tts: "목소리 만드는 중",
   rendering: "영상 만드는 중",
 };
+const CANCEL_LABEL = {
+  queued: "멈추기", scraping: "불러오기 멈추기", scripting: "대본 쓰기 멈추기",
+  tts: "영상 만들기 멈추기", rendering: "영상 만들기 멈추기",
+};
 const STORE_KEY = "blogvideo.jobId";
 
-const state = { info: null, job: null, script: null, options: null, music: [], pollTimer: null, pickerScene: -1 };
+const state = { info: null, job: null, script: null, options: null, music: [], pollTimer: null, pickerScene: -1,
+                selected: null, cancelling: false };
 
 // ---------- 공통 ----------
 async function api(method, path, body) {
@@ -266,6 +271,12 @@ function routeJob(job) {
   state.job = job;
   localStorage.setItem(STORE_KEY, job.id);
   stopPoll();
+  const active = !["loaded", "ready", "done", "error"].includes(job.stage);
+  if (!active && state.cancelling) {
+    state.cancelling = false;
+    if (job.stage === "error" && job.failed_phase === "prepare") return goHome(true);   // 불러오기를 멈춤
+    toast("멈췄어요.");
+  }
   if (job.stage === "loaded") return openSource(job);
   if (job.stage === "ready") return openEdit(job);
   if (job.stage === "done") return openResult(job);
@@ -294,7 +305,26 @@ function openProgress(job) {
   $("bar-fill").style.width = pct + "%";
   $("percent").textContent = pct + "%";
   document.querySelector(".bar").setAttribute("aria-valuenow", String(pct));
+  const btn = $("btn-cancel");
+  btn.textContent = state.cancelling ? "멈추는 중…" : (CANCEL_LABEL[job.stage] || "멈추기");
+  btn.disabled = !!state.cancelling;
   show("progress");
+}
+
+async function cancelJob() {
+  const making = state.job.stage === "tts" || state.job.stage === "rendering" ||
+    (state.job.stage === "queued" && state.job.script);
+  if (making && !confirm("영상 만들기를 멈출까요? 지금까지 만든 부분은 버려지고, 대본 고치기 화면으로 돌아가요.")) return;
+  state.cancelling = true;
+  $("btn-cancel").disabled = true;
+  $("btn-cancel").textContent = "멈추는 중…";
+  try {
+    const job = await api("POST", `/api/jobs/${state.job.id}/cancel`);
+    if (["ready", "loaded", "done", "error"].includes(job.stage)) routeJob(job);
+  } catch (e) {
+    state.cancelling = false;
+    toast(e.message);
+  }
 }
 
 async function startLoad() {
@@ -317,19 +347,45 @@ function smallImageUrl(i) {
   return `/api/jobs/${state.job.id}/image/${i}?small=1`;
 }
 
-function fillPhotos(el, onPick) {
-  el.innerHTML = "";
-  for (let i = 0; i < imageCount(); i++) {
-    const b = document.createElement(onPick ? "button" : "div");
-    if (onPick) {
-      b.type = "button";
-      b.onclick = () => onPick(i);
-    }
-    b.className = "photo";
-    b.style.backgroundImage = `url("${smallImageUrl(i)}")`;
-    b.setAttribute("aria-label", `사진 ${i + 1}`);
-    el.appendChild(b);
+function usedCounts() {
+  const used = {};
+  ((state.script && state.script.scenes) || []).forEach((s) => {
+    if (s.image_index !== null && s.image_index !== undefined) used[s.image_index] = (used[s.image_index] || 0) + 1;
+  });
+  return used;
+}
+
+// 사진 한 칸: 진짜 <img>를 넣어 칸 크기가 사진에 맞게 잡히게 한다(배경 그림으로 넣으면 칸이 찌그러져 겹쳐 보였음)
+function photoTile(i, opts) {
+  const o = opts || {};
+  const el = document.createElement(o.onPick ? "button" : "div");
+  if (o.onPick) {
+    el.type = "button";
+    el.onclick = () => o.onPick(i);
   }
+  el.className = "photo" + (o.selected ? " selected" : "");
+  el.setAttribute("aria-label", `사진 ${i + 1}`);
+  const img = document.createElement("img");
+  img.src = smallImageUrl(i);
+  img.alt = "";
+  img.loading = "lazy";
+  const num = document.createElement("span");
+  num.className = "num";
+  num.textContent = String(i + 1);
+  el.append(img, num);
+  if (o.used) {
+    const u = document.createElement("span");
+    u.className = "used";
+    u.textContent = o.used > 1 ? `사용 ${o.used}번` : "사용 중";
+    el.appendChild(u);
+  }
+  return el;
+}
+
+function fillPhotos(el, onPick, markUsed) {
+  el.innerHTML = "";
+  const used = markUsed ? usedCounts() : {};
+  for (let i = 0; i < imageCount(); i++) el.appendChild(photoTile(i, { onPick, used: used[i] }));
 }
 
 function openSource(job) {
@@ -402,7 +458,7 @@ function openEdit(job) {
   $("edit-hint").textContent = manual
     ? "블로그 글과 사진을 골라 장면을 만들고, 자막을 직접 써 주세요. 자막은 성우가 그대로 읽어요."
     : "AI가 추천한 장면이에요. 자막·사진·움직임·전환을 마음대로 고쳐 주세요. 자막은 성우가 그대로 읽어요.";
-  fillPhotos($("panel-photos"), (i) => addScene("", i));
+  state.selected = null;
   const panel = $("panel-text");
   panel.innerHTML = "";
   ((job.post && job.post.paragraphs) || []).forEach((p) => {
@@ -411,7 +467,7 @@ function openEdit(job) {
     b.className = "para";
     b.textContent = p;
     b.title = "눌러서 장면으로 추가";
-    b.onclick = () => addScene(p, null);
+    b.onclick = () => addScene(p, null);   // 선택한 장면 바로 아래(없으면 맨 아래)에
     panel.appendChild(b);
   });
   $("source-panel").open = manual;
@@ -434,9 +490,16 @@ function renderScenes() {
   const n = state.script.scenes.length;
   $("empty-scenes").classList.toggle("hidden", n > 0);
   updateSummary();
+  if (state.selected !== null && state.selected >= n) state.selected = null;
+  fillPhotos($("panel-photos"), (k) => addScene("", k), true);
+  $("panel-hint").textContent = state.selected === null
+    ? "글 한 토막이나 사진을 누르면 그 내용으로 새 장면이 맨 아래에 생겨요. 장면을 먼저 눌러 고르면 그 장면 바로 아래에 생겨요."
+    : `글 한 토막이나 사진을 누르면 고른 장면(장면 ${state.selected + 1}) 바로 아래에 새 장면이 생겨요.`;
   state.script.scenes.forEach((scene, i) => {
     const li = document.createElement("li");
-    li.className = "scene-card";
+    li.className = "scene-card" + (state.selected === i ? " selected" : "");
+    li.addEventListener("focusin", () => selectScene(i));
+    li.addEventListener("click", () => selectScene(i));
 
     const head = document.createElement("div");
     head.className = "scene-head";
@@ -507,7 +570,22 @@ function renderScenes() {
     mkSelect(MOTION_LABEL, "motion", "사진 움직임");
     mkSelect(TRANSITION_LABEL, "transition", "장면 전환");
 
-    li.append(head, thumb, ta, count, place, pickers);
+    const actions = document.createElement("div");
+    actions.className = "scene-actions";
+    const act = (label, title, fn) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = label;
+      b.title = title;
+      b.onclick = (e) => { e.stopPropagation(); fn(); };
+      actions.appendChild(b);
+    };
+    act("+ 앞에 추가", "이 장면 앞에 빈 장면 넣기", () => addScene("", null, i));
+    act("+ 뒤에 추가", "이 장면 뒤에 빈 장면 넣기", () => addScene("", null, i + 1));
+    act("복제", "이 장면을 똑같이 하나 더 만들기", () => duplicateScene(i));
+    act("나누기", "자막의 커서 위치에서 장면을 둘로 나누기", () => splitScene(i, ta));
+
+    li.append(head, thumb, ta, count, place, pickers, actions);
     list.appendChild(li);
   });
 }
@@ -528,49 +606,99 @@ function updateSummary() {
 function moveScene(i, d) {
   const s = state.script.scenes;
   [s[i], s[i + d]] = [s[i + d], s[i]];
+  state.selected = i + d;
   renderScenes();
 }
 
 function deleteScene(i) {
   if (!confirm(`장면 ${i + 1}을 지울까요?`)) return;
   state.script.scenes.splice(i, 1);
+  state.selected = null;
   renderScenes();
 }
 
-function addScene(text, imageIndex) {
+function selectScene(i) {
+  if (state.selected === i) return;
+  state.selected = i;
+  document.querySelectorAll(".scene-card").forEach((c, k) => c.classList.toggle("selected", k === i));
+  $("panel-hint").textContent = `글 한 토막이나 사진을 누르면 고른 장면(장면 ${i + 1}) 바로 아래에 새 장면이 생겨요.`;
+}
+
+function focusScene(i) {
+  const card = document.querySelectorAll(".scene-card")[i];
+  if (!card) return;
+  card.scrollIntoView({ block: "center" });
+  card.querySelector("textarea").focus({ preventScroll: true });
+}
+
+// at: 넣을 자리(0이면 맨 앞). 안 주면 고른 장면 바로 아래, 고른 장면이 없으면 맨 아래.
+function addScene(text, imageIndex, at) {
   const scenes = state.script.scenes;
+  let pos = at;
+  if (pos === undefined || pos === null) pos = state.selected === null ? scenes.length : state.selected + 1;
+  pos = Math.max(0, Math.min(pos, scenes.length));
   let idx = imageIndex;
-  if (idx === null || idx === undefined) {  // 사진을 안 골랐으면 앞 장면 다음 사진부터
-    const prev = scenes.length ? scenes[scenes.length - 1].image_index : null;
+  if (idx === null || idx === undefined) {  // 사진을 안 골랐으면 바로 앞 장면의 다음 사진
+    const prev = pos > 0 ? scenes[pos - 1].image_index : null;
     idx = imageCount() ? (prev === null || prev === undefined ? 0 : Math.min(prev + 1, imageCount() - 1)) : null;
   }
-  scenes.push({ text: typeof text === "string" ? text : "", image_index: idx, place: "", motion: "auto", transition: "auto" });
+  scenes.splice(pos, 0, { text: typeof text === "string" ? text : "", image_index: idx, place: "",
+                          motion: "auto", transition: "auto" });
+  state.selected = pos;
   renderScenes();
-  const cards = document.querySelectorAll(".scene-card");
-  const last = cards[cards.length - 1];
-  last.scrollIntoView({ block: "center" });
-  last.querySelector("textarea").focus();
+  focusScene(pos);
+}
+
+function duplicateScene(i) {
+  const s = state.script.scenes[i];
+  state.script.scenes.splice(i + 1, 0, { text: s.text, image_index: s.image_index, place: s.place || "",
+                                         motion: s.motion || "auto", transition: "auto" });
+  state.selected = i + 1;
+  renderScenes();
+  focusScene(i + 1);
+}
+
+function splitScene(i, ta) {
+  const s = state.script.scenes[i];
+  const text = s.text;
+  let cut = ta.selectionStart;
+  if (!cut || cut >= text.length) {   // 커서가 처음·끝이면 가운데에서 가장 가까운 문장 끝
+    const ends = [];
+    const re = /[.!?。…]\s+/g;
+    let m;
+    while ((m = re.exec(text)) !== null) ends.push(m.index + m[0].length);
+    if (!ends.length) return toast("자막에서 나눌 자리에 커서를 두고 다시 눌러 주세요.");
+    cut = ends.reduce((a, b) => (Math.abs(b - text.length / 2) < Math.abs(a - text.length / 2) ? b : a));
+  }
+  const first = text.slice(0, cut).trim();
+  const second = text.slice(cut).trim();
+  if (!first || !second) return toast("자막에서 나눌 자리에 커서를 두고 다시 눌러 주세요.");
+  s.text = first;
+  state.script.scenes.splice(i + 1, 0, { text: second, image_index: s.image_index, place: s.place || "",
+                                         motion: "auto", transition: "auto" });
+  state.selected = i + 1;
+  renderScenes();
+  focusScene(i + 1);
 }
 
 function openPicker(sceneIdx) {
   state.pickerScene = sceneIdx;
+  const current = state.script.scenes[sceneIdx].image_index;
+  const used = usedCounts();
   const grid = $("picker-grid");
   grid.innerHTML = "";
   const none = document.createElement("button");
   none.type = "button";
-  none.className = "none";
+  none.className = "photo none" + (current === null || current === undefined ? " selected" : "");
   none.textContent = "사진 없음";
   none.onclick = () => pick(null);
   grid.appendChild(none);
   for (let i = 0; i < imageCount(); i++) {
-    const b = document.createElement("button");
-    b.type = "button";
-    b.style.backgroundImage = `url("${smallImageUrl(i)}")`;
-    b.setAttribute("aria-label", `사진 ${i + 1}`);
-    b.onclick = () => pick(i);
-    grid.appendChild(b);
+    grid.appendChild(photoTile(i, { onPick: pick, selected: current === i, used: used[i] }));
   }
   $("picker").showModal();
+  const sel = grid.querySelector(".selected");
+  if (sel) sel.scrollIntoView({ block: "center" });
 }
 
 function pick(idx) {
@@ -835,6 +963,7 @@ $("bgm-edit").addEventListener("change", () => { $("bgm-audio").pause(); });
 $("voice").addEventListener("change", () => { $("voice-audio").pause(); });
 document.querySelector('#view-edit .seg[data-name="speed"]').addEventListener("click", () => updateSummary());
 ["opt-intro", "opt-outro"].forEach((id) => $(id).addEventListener("change", () => updateSummary()));
+$("btn-cancel").onclick = cancelJob;
 $("btn-load").onclick = startLoad;
 $("url").addEventListener("keydown", (e) => { if (e.key === "Enter") startLoad(); });
 $("btn-recommend").onclick = () => writeScript(segValue("mode") || "auto");
@@ -845,7 +974,7 @@ $("btn-rewrite").onclick = () => {
   openSource(state.job);
 };
 $("btn-render").onclick = startRender;
-$("btn-add-scene").onclick = () => addScene("", null);
+$("btn-add-scene").onclick = () => addScene("", null, state.script.scenes.length);   // 맨 아래에
 $("yt-title").addEventListener("input", updateTitleCount);
 $("btn-reedit").onclick = () => openEdit(state.job);
 $("btn-new").onclick = () => goHome(true);

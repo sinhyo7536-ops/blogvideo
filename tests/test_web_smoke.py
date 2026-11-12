@@ -535,3 +535,168 @@ def test_own_mp3_file_becomes_background_music(live_server, browser, tmp_path):
     page.click('.seg[data-name="bgm-source"] button[data-value="file"]')
     page.set_input_files("#bgm-upload", str(bad))
     page.wait_for_selector("#bgm-error:has-text('MP3')")
+
+
+# ---------- 사진 잘 보이게, 만드는 중 멈추기, 장면 자유롭게 추가 ----------
+def _serve_with_photos(tmp_path, monkeypatch, n=7):
+    """사진 n장(크기·비율이 제각각)이 있는 글."""
+    from PIL import Image
+
+    from app.models import BlogPost, ImageRef
+
+    m = _start(tmp_path, monkeypatch)
+    sizes = [(1600, 900), (900, 1600), (1200, 1200), (2000, 800), (800, 600), (640, 1136), (3000, 2000)]
+    m.steps.fetch_post = lambda url: BlogPost(title="사진 많은 글", url=url,
+                                              paragraphs=["첫 문단이에요. 둘째 문장이에요.", "둘째 문단"],
+                                              images=[ImageRef(url=f"u{i}") for i in range(n)])
+
+    def download(post, dest):
+        dest.mkdir(parents=True, exist_ok=True)
+        imgs = []
+        for i in range(n):
+            p = dest / f"img_{i:02d}.jpg"
+            Image.new("RGB", sizes[i % len(sizes)], (30 * i % 255, 120, 200 - 20 * i)).save(p)
+            imgs.append(ImageRef(url=f"u{i}", local_path=str(p)))
+        return post.model_copy(update={"images": imgs})
+
+    m.steps.download_images = download
+    return m
+
+
+BOXES_JS = """(sel) => [...document.querySelectorAll(sel)].map(e => {
+    const r = e.getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom]; })"""
+LOADED_JS = "(sel) => [...document.querySelectorAll(sel)].every(i => i.complete && i.naturalWidth)"
+
+
+def _overlapping(boxes):
+    bad = []
+    for i, a in enumerate(boxes):
+        for b in boxes[i + 1:]:
+            if a[0] < b[2] - 1 and b[0] < a[2] - 1 and a[1] < b[3] - 1 and b[1] < a[3] - 1:
+                bad.append((a, b))
+    return bad
+
+
+def _texts(page):
+    return page.evaluate("state.script.scenes.map(s => s.text)")
+
+
+@pytest.mark.parametrize("vp", [{"width": 390, "height": 844}, {"width": 1280, "height": 800}], ids=["mobile", "desktop"])
+def test_photos_do_not_overlap_and_are_numbered(tmp_path, monkeypatch, browser, vp):
+    for base in _serve(_serve_with_photos(tmp_path, monkeypatch)):
+        page = browser.new_page(viewport=vp)
+        _to_source(page, base)
+        page.wait_for_function(LOADED_JS, arg="#source-photos img")
+        boxes = page.evaluate(BOXES_JS, "#source-photos .photo")
+        assert len(boxes) == 7 and not _overlapping(boxes)
+        assert all(b[3] - b[1] > 60 for b in boxes)                      # 찌그러진 칸 없음
+        assert page.locator("#source-photos .photo .num").all_inner_texts() == [str(i) for i in range(1, 8)]
+        page.click("#btn-manual")
+        page.wait_for_selector("#view-edit:not(.hidden)")
+        page.click("#panel-photos .photo >> nth=2")                       # 사진 3으로 장면 만들기
+        page.wait_for_selector(".scene-card")
+        assert not _overlapping(page.evaluate(BOXES_JS, "#panel-photos .photo"))
+        assert page.inner_text("#panel-photos .photo >> nth=2 >> .used") == "사용 중"
+        page.click(".scene-card .thumb >> nth=0")                         # 사진 고르기 창
+        page.wait_for_selector("#picker[open]")
+        page.wait_for_function(LOADED_JS, arg="#picker-grid img")
+        boxes = page.evaluate(BOXES_JS, "#picker-grid .photo")
+        assert len(boxes) == 8 and not _overlapping(boxes)                # 사진 없음 + 7장
+        assert all(b[3] - b[1] > 60 for b in boxes)
+        assert page.locator("#picker-grid .photo.selected .num").inner_text() == "3"
+        page.click("#picker-grid .photo >> nth=5")                        # 사진 5로 바꾸기
+        assert page.evaluate("state.script.scenes.map(s => s.image_index)") == [4]
+        page.close()
+
+
+def test_add_scene_anywhere_duplicate_and_split(tmp_path, monkeypatch, browser):
+    for base in _serve(_serve_with_photos(tmp_path, monkeypatch)):
+        page = browser.new_page(viewport={"width": 1280, "height": 800})
+        _to_source(page, base)
+        page.click("#btn-manual")
+        page.wait_for_selector("#view-edit:not(.hidden)")
+        page.click("#btn-add-scene")
+        page.fill(".scene-card textarea >> nth=0", "A")
+        page.click("#btn-add-scene")
+        page.fill(".scene-card textarea >> nth=1", "C")
+        page.click(".scene-card >> nth=1 >> text=+ 앞에 추가")            # A와 C 사이에 끼우기
+        page.keyboard.type("B")
+        assert _texts(page) == ["A", "B", "C"]
+        page.click(".scene-card >> nth=0 >> text=+ 앞에 추가")            # 맨 앞에
+        page.keyboard.type("처음")
+        assert _texts(page) == ["처음", "A", "B", "C"]
+        page.click(".scene-card >> nth=3 >> text=+ 뒤에 추가")
+        page.keyboard.type("끝")
+        assert _texts(page) == ["처음", "A", "B", "C", "끝"]
+        # 고른 장면 바로 아래에 블로그 글이 들어감
+        page.click(".scene-card >> nth=1 >> textarea")
+        assert "장면 2" in page.inner_text("#panel-hint")
+        page.click("#panel-text .para >> nth=1")
+        assert _texts(page) == ["처음", "A", "둘째 문단", "B", "C", "끝"]
+        # 복제
+        page.select_option(".scene-card >> nth=3 >> select.motion", "pan_left")
+        page.click(".scene-card >> nth=3 >> text=복제")
+        assert _texts(page) == ["처음", "A", "둘째 문단", "B", "B", "C", "끝"]
+        assert page.input_value(".scene-card >> nth=4 >> select.motion") == "pan_left"
+        # 나누기: 커서 위치에서
+        page.fill(".scene-card textarea >> nth=5", "앞부분 뒷부분")
+        page.evaluate("document.querySelectorAll('.scene-card textarea')[5].setSelectionRange(3, 3)")
+        page.click(".scene-card >> nth=5 >> text=나누기")
+        assert _texts(page)[5:7] == ["앞부분", "뒷부분"]
+        # 나누기: 커서가 끝에 있으면 문장 끝에서
+        page.fill(".scene-card textarea >> nth=0", "첫 문장이에요. 둘째 문장이에요.")
+        page.click(".scene-card >> nth=0 >> text=나누기")
+        assert _texts(page)[:2] == ["첫 문장이에요.", "둘째 문장이에요."]
+        # 나눌 수 없으면 안내만
+        page.click(".scene-card >> nth=2 >> text=나누기")
+        page.wait_for_selector("#toast:not(.hidden)")
+        assert len(_texts(page)) == 9
+        assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+        page.close()
+
+
+def test_stop_button_while_making_video(tmp_path, monkeypatch, browser):
+    import threading
+
+    m = _start(tmp_path, monkeypatch)
+    gate = threading.Event()
+    m.steps.abort = gate.set
+
+    def slow(post, script, options, workdir, on_progress=None):
+        on_progress(0.3)
+        gate.wait(10)
+        on_progress(0.6)
+
+    real = m.steps.render_video
+    m.steps.render_video = slow
+    for base in _serve(m):
+        page = browser.new_page(viewport={"width": 390, "height": 844})
+        _to_edit(page, base)
+        page.fill(".scene-card textarea >> nth=0", "멈춰도 남아 있을 자막")
+        page.click("button:has-text('영상 만들기')")
+        page.wait_for_selector("#btn-cancel:has-text('영상 만들기 멈추기')", timeout=10000)
+        asked = []
+        page.on("dialog", lambda d: (asked.append(d.message), d.accept()))
+        page.click("#btn-cancel")
+        page.wait_for_selector("#view-edit:not(.hidden)", timeout=10000)   # 대본 고치기로 돌아옴
+        assert asked and "멈출까요" in asked[0]
+        assert page.input_value(".scene-card textarea >> nth=0") == "멈춰도 남아 있을 자막"
+        m.steps.render_video = real                                        # 다시 만들면 끝까지 됨
+        page.click("button:has-text('영상 만들기')")
+        page.wait_for_selector("#view-result:not(.hidden)", timeout=10000)
+        page.close()
+
+
+def test_stop_button_while_loading_goes_home(tmp_path, monkeypatch, browser):
+    m = _start(tmp_path, monkeypatch)
+    m.steps.fetch_post = fake_steps(delay=1.5).fetch_post
+    for base in _serve(m):
+        page = browser.new_page(viewport={"width": 1280, "height": 800})
+        page.goto(base)
+        page.fill("#url", "https://blog.naver.com/a/1")
+        page.click("#btn-load")
+        page.wait_for_selector("#btn-cancel:has-text('불러오기 멈추기')", timeout=5000)
+        page.click("#btn-cancel")
+        page.wait_for_selector("#view-home:not(.hidden)", timeout=10000)
+        assert page.evaluate("localStorage.getItem('blogvideo.jobId')") is None
+        page.close()

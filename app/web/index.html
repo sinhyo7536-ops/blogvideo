@@ -151,7 +151,7 @@
       <p class="muted" id="scene-summary"></p>
       <details class="source-panel" id="source-panel">
         <summary>블로그 글·사진에서 가져오기</summary>
-        <p class="muted">글 한 토막이나 사진을 누르면 그 내용으로 새 장면이 맨 아래에 생겨요.</p>
+        <p class="muted" id="panel-hint">글 한 토막이나 사진을 누르면 그 내용으로 새 장면이 생겨요.</p>
         <div id="panel-photos" class="photo-grid small"></div>
         <div id="panel-text" class="panel-text"></div>
       </details>
@@ -181,6 +181,7 @@
       <p class="muted" id="progress-hint">잠시만 기다려 주세요. 이 화면을 닫아도 작업은 계속돼요.</p>
       <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100"><div id="bar-fill"></div></div>
       <p class="percent" id="percent">0%</p>
+      <button type="button" class="ghost" id="btn-cancel">멈추기</button>
     </section>
 
     <!-- 4. 결과 -->
@@ -277,6 +278,7 @@
 
   <dialog id="picker">
     <h2>사진 고르기</h2>
+    <p class="muted">번호는 블로그에 올린 순서예요. 지금 쓰는 사진은 파란 테두리로 표시돼요.</p>
     <div id="picker-grid" class="picker-grid"></div>
     <button type="button" class="ghost" id="picker-close">닫기</button>
   </dialog>
