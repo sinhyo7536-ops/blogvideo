@@ -126,32 +126,13 @@ class JobManager:
         self._queue.put((job_id, phase))
         return s
 
-    def prompt(self, job_id: str) -> str:
-        from app.script import build_prompt
-
-        s = self.get(job_id)
-        if s.post is None:
-            raise UserError(NO_SCRIPT)
-        return build_prompt(s.post)
-
-    def paste_script(self, job_id: str, text: str) -> JobState:
-        from app.script import parse_pasted
-
-        s = self.get(job_id)
-        if s.post is None or s.stage in _ACTIVE:
-            raise UserError(BUSY)
-        script = parse_pasted(text, len(s.post.images))
-        return self._set(job_id, script=script, stage="ready", progress=1.0, message="", failed_phase=None)
-
     def use_free_mode(self, job_id: str, mode: str) -> JobState:
         """API 대본이 실패했을 때 무료 방법으로 이어서 하기."""
         s = self.get(job_id)
-        if s.post is None or s.stage in _ACTIVE or mode not in ("auto", "manual"):
+        if s.post is None or s.stage in _ACTIVE or mode != "auto":
             raise UserError(BUSY)
-        if mode == "auto":
-            return self._set(job_id, mode="auto", script=self.steps.auto_script(s.post), stage="ready",
-                             progress=1.0, message="", failed_phase=None)
-        return self._set(job_id, mode="manual", stage="needs_script", progress=1.0, message="", failed_phase=None)
+        return self._set(job_id, mode="auto", script=self.steps.auto_script(s.post), stage="ready",
+                         progress=1.0, message="", failed_phase=None)
 
     def cleanup_old(self, days: int = 7) -> int:
         limit = time.time() - days * 86400
@@ -206,12 +187,8 @@ class JobManager:
         post = self.steps.fetch_post(s.url)
         self._set(job_id, progress=0.15)
         post = self.steps.download_images(post, self.dir(job_id) / "images")
-        mode = self.get(job_id).mode
-        if mode == "manual":
-            self._set(job_id, post=post, stage="needs_script", progress=1.0)
-            return
         self._set(job_id, post=post, stage="scripting", progress=0.3)
-        if mode == "auto":
+        if self.get(job_id).mode == "auto":
             script = self.steps.auto_script(post)
         else:
             script = self.steps.generate_script(post, self.steps.api_key())

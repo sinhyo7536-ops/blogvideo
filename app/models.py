@@ -51,8 +51,8 @@ class RenderOptions(BaseModel):
         return v
 
 
-Stage = Literal["queued", "scraping", "scripting", "needs_script", "ready", "tts", "rendering", "done", "error"]
-ScriptMode = Literal["api", "auto", "manual"]
+Stage = Literal["queued", "scraping", "scripting", "ready", "tts", "rendering", "done", "error"]
+ScriptMode = Literal["api", "auto"]
 
 
 class JobState(BaseModel):

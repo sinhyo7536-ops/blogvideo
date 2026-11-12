@@ -201,28 +201,6 @@ def test_free_auto_flow(live_server, browser):
     assert "끝까지 봐 주셔서" in page.input_value(".scene-card textarea >> nth=-1")
 
 
-def test_manual_paste_flow(live_server, browser):
-    page = browser.new_page(viewport={"width": 390, "height": 844})
-    _start_job(page, live_server, "claude.ai 붙여넣기(무료)")
-    page.wait_for_selector("#view-paste:not(.hidden)", timeout=10000)
-    assert "JSON" in page.input_value("#prompt-text")
-    shot(page, "m6_paste")
-    page.fill("#paste-text", '여기요!\n```json\n{"scenes":[{"text":"붙여넣은 장면","image_index":0}],'
-                             '"yt_title":"제목","yt_description":"설명","yt_tags":["태그"]}\n```')
-    page.click("#btn-paste")
-    page.wait_for_selector(".scene-card", timeout=5000)
-    assert page.input_value(".scene-card textarea >> nth=0") == "붙여넣은 장면"
-
-
-def test_manual_paste_bad_text_shows_error(live_server, browser):
-    page = browser.new_page(viewport={"width": 390, "height": 844})
-    _start_job(page, live_server, "claude.ai 붙여넣기(무료)")
-    page.wait_for_selector("#view-paste:not(.hidden)", timeout=10000)
-    page.fill("#paste-text", "엉뚱한 글")
-    page.click("#btn-paste")
-    page.wait_for_selector("text=붙여넣은 내용을 읽지 못했어요", timeout=3000)
-
-
 def test_api_error_offers_free_modes(live_server_api_fails, browser):
     page = browser.new_page(viewport={"width": 390, "height": 844})
     _start_job(page, live_server_api_fails, "AI 자동(유료)")
@@ -230,3 +208,10 @@ def test_api_error_offers_free_modes(live_server_api_fails, browser):
     shot(page, "m7_error_free")
     page.click("#btn-free-auto")
     page.wait_for_selector(".scene-card", timeout=5000)
+
+
+def test_no_claude_paste_option(live_server, browser):
+    page = browser.new_page(viewport={"width": 390, "height": 844})
+    page.goto(live_server)
+    page.wait_for_selector("text=AI 없이(무료)")
+    assert page.locator("text=붙여넣기").count() == 0

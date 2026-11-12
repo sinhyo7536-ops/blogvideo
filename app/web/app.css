@@ -75,15 +75,7 @@ button:disabled { opacity: .55; cursor: default; }
 .seg button + button { border-left: 1px solid var(--line); }
 .seg button.on { background: var(--primary); color: #fff; font-weight: 700; }
 .seg.small button { min-height: 44px; font-size: .95rem; }
-.seg.stack { flex-direction: column; }
-.seg.stack button + button { border-left: 0; border-top: 1px solid var(--line); }
-.paste-steps { padding-left: 0; list-style: none; display: grid; gap: .6rem; margin: 1rem 0; }
-.paste-steps li { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
 .free-options { margin-top: 1rem; }
-@media (min-width: 600px) {
-  .seg.stack { flex-direction: row; }
-  .seg.stack button + button { border-top: 0; border-left: 1px solid var(--line); }
-}
 
 .edit-options { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; margin: 1rem 0; }
 .edit-options select { grid-column: 1 / -1; }

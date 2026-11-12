@@ -22,7 +22,7 @@ from app.paths import jobs_dir, music_dirs, resource_path, user_music_dir
 from app.scraper.naver import validate_url
 
 PORT = 8765
-NO_KEY = "API 키가 없어요. 설정에서 키를 넣거나, 무료 방법(AI 없이 / claude.ai 붙여넣기)을 골라 주세요."
+NO_KEY = "API 키가 없어요. 설정에서 키를 넣거나, 무료 방법(AI 없이)을 골라 주세요."
 PC_ONLY = "설정은 PC에서만 바꿀 수 있어요."
 LOCAL_ONLY = "이 프로그램은 설치된 PC에서만 쓸 수 있어요."
 _LOCAL_HOSTS = {"127.0.0.1", "localhost", "[::1]"}
@@ -47,15 +47,11 @@ def default_steps() -> Steps:
 class CreateJob(BaseModel):
     url: str
     options: RenderOptions = RenderOptions()
-    mode: Literal["api", "auto", "manual"] = "api"
-
-
-class Paste(BaseModel):
-    text: str
+    mode: Literal["api", "auto"] = "api"
 
 
 class FreeMode(BaseModel):
-    mode: Literal["auto", "manual"]
+    mode: Literal["auto"]
 
 
 class UpdateScript(BaseModel):
@@ -154,14 +150,6 @@ def create_app(manager: JobManager | None = None) -> FastAPI:
         if body.mode == "api" and not manager.steps.api_key():
             raise UserError(NO_KEY)
         return _public(manager.create(url, body.options, body.mode))
-
-    @app.get("/api/jobs/{job_id}/prompt")
-    def get_prompt(job_id: str):
-        return {"prompt": manager.prompt(job_id)}
-
-    @app.post("/api/jobs/{job_id}/paste")
-    def paste(job_id: str, body: Paste):
-        return _public(manager.paste_script(job_id, body.text))
 
     @app.post("/api/jobs/{job_id}/free-mode")
     def free_mode(job_id: str, body: FreeMode):

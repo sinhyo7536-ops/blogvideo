@@ -28,10 +28,9 @@
 
       <fieldset class="field">
         <legend>대본 만드는 방법</legend>
-        <div class="seg stack" data-name="mode">
+        <div class="seg" data-name="mode">
           <button type="button" data-value="api" class="on">AI 자동(유료)</button>
           <button type="button" data-value="auto">AI 없이(무료)</button>
-          <button type="button" data-value="manual">claude.ai 붙여넣기(무료)</button>
         </div>
         <p class="muted" id="mode-help"></p>
       </fieldset>
@@ -92,24 +91,6 @@
       </div>
     </section>
 
-    <!-- 2-1. claude.ai 붙여넣기 (무료) -->
-    <section id="view-paste" class="view hidden">
-      <h1>claude.ai로 대본 만들기 (무료)</h1>
-      <p class="muted">claude.ai 무료 계정으로도 할 수 있어요. 아래 순서대로 해 주세요.</p>
-      <ol class="paste-steps">
-        <li><button type="button" class="primary" id="btn-copy-prompt">① 질문 복사하기</button></li>
-        <li><a class="as-btn" id="open-claude" href="https://claude.ai/new" target="_blank" rel="noopener">② claude.ai 열기</a>
-          <span class="muted">채팅창에 붙여넣고(Ctrl+V) 보내세요.</span></li>
-        <li><span>③ AI 답변이 끝나면 <b>답변 전체</b>를 복사해서 아래에 붙여넣으세요.</span></li>
-      </ol>
-      <details class="muted"><summary>복사되는 질문 보기</summary>
-        <textarea id="prompt-text" rows="8" readonly></textarea></details>
-      <label class="field"><span>claude.ai 답변 붙여넣기</span>
-        <textarea id="paste-text" rows="8" placeholder="여기에 claude.ai 답변을 붙여넣으세요"></textarea></label>
-      <p class="error-text hidden" id="paste-error" role="alert"></p>
-      <button type="button" class="primary big" id="btn-paste">대본 만들기</button>
-    </section>
-
     <!-- 3. 진행 -->
     <section id="view-progress" class="view hidden">
       <h1 id="progress-title">만드는 중</h1>
@@ -143,7 +124,6 @@
         <p><b>무료 방법으로 이어서 할 수 있어요.</b></p>
         <div class="row">
           <button type="button" class="primary" id="btn-free-auto">AI 없이 계속하기(무료)</button>
-          <button type="button" class="primary" id="btn-free-manual">claude.ai 붙여넣기로 계속(무료)</button>
         </div>
       </div>
       <div class="row">
