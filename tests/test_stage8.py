@@ -106,7 +106,7 @@ def test_local_checks_find_problems():
     s = s.model_copy(update={"scenes": scenes, "excluded_images": [1], "yt_title": ""})
     items = ck.local_checks(s, POST, RenderOptions())
     text = " | ".join(f"{x['scene']}:{x['text']}" for x in items)
-    for want in ("1:뺀 사진(사진 2)", "2:사진 1을 장면 1에서도", "3:사진이 없어", "4:자막이 70자", "4:자막이 빨리",
+    for want in ("1:뺀 사진(사진 2번)", "2:사진 1번을 장면 1에서도", "3:사진이 없어", "4:자막이 70자", "4:자막이 빨리",
                  "5:사진 한 장이 14초", "5:글과 사진이 잘 안 맞을", "-1:유튜브 제목이 비어"):
         assert want in text, want
 

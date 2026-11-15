@@ -29,9 +29,9 @@ def local_checks(script: VideoScript, post: BlogPost | None, options: RenderOpti
             add("warn", i, "사진이 없어 어두운 화면에 자막만 나와요.")
         for p in photos:
             if p in excluded:
-                add("warn", i, f"뺀 사진(사진 {p + 1})을 쓰고 있어요.")
+                add("warn", i, f"뺀 사진(사진 {p + 1}번)을 쓰고 있어요.")
             if p in last_seen and i - last_seen[p] > 1:
-                add("info", i, f"사진 {p + 1}을 장면 {last_seen[p] + 1}에서도 썼어요. 같은 사진이 다시 나와요.")
+                add("info", i, f"사진 {p + 1}번을 장면 {last_seen[p] + 1}에서도 썼어요. 같은 사진이 다시 나와요.")
             last_seen[p] = i
         if len(s.text) > LONG_CAPTION:
             add("info", i, f"자막이 {len(s.text)}자로 길어요. 나누면 읽기 쉬워요.")

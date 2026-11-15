@@ -1881,6 +1881,8 @@ async function remakeThumb(text) {
     const job = await api("POST", `/api/jobs/${state.job.id}/thumbnail`, { text });
     state.job = job;
     $("thumb-img").src = `/api/jobs/${job.id}/thumbnail?v=${job.finished_at}`;
+    $("btn-thumb").href = `/api/jobs/${job.id}/thumbnail?download=1`;
+    $("thumb-box").classList.remove("hidden");
     $("thumb-box").scrollIntoView({ block: "center" });
     toast("썸네일을 다시 만들었어요.");
   } catch (e) {

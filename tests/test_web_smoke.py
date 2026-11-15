@@ -1061,9 +1061,10 @@ def test_youtube_text_and_thumbnail_text(tmp_path, monkeypatch, browser):
         page.wait_for_selector("#yt-result:not(.hidden)")
         assert page.locator("#yt-titles li").count() == 2
         assert page.inner_text("#yt-hashtags") == "#통영 #거제" and "챕터" in page.inner_text("#yt-desc-out")
-        old = page.get_attribute("#thumb-img", "src")
         page.click("#yt-thumbs li >> nth=0 >> text=이 문구로 썸네일 만들기")
-        page.wait_for_function(f"document.getElementById('thumb-img').getAttribute('src') !== {old!r}")
+        page.wait_for_selector("#thumb-box:not(.hidden)")
+        assert "thumbnail?v=" in page.get_attribute("#thumb-img", "src")
+        assert page.evaluate("document.getElementById('thumb-img').complete")
         page.close()
 
 
