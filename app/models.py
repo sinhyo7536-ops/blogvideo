@@ -11,6 +11,8 @@ from pydantic import BaseModel, Field, field_validator
 class ImageRef(BaseModel):
     url: str
     local_path: str | None = None
+    para: int = -1          # 이 사진 바로 앞의 문단 번호(-1이면 첫 문단보다 앞). 본문과 사진을 잇는 단서
+    post: int = 0           # 여러 게시글을 합쳤을 때 몇 번째 글의 사진인지
 
 
 class BlogPost(BaseModel):
@@ -19,6 +21,9 @@ class BlogPost(BaseModel):
     images: list[ImageRef]
     url: str
     blog_name: str = ""
+    date: str = ""                                   # 작성 날짜 (예: 2026. 11. 4. 10:22)
+    missing: list[str] = Field(default_factory=list)  # 받지 못한 사진 설명 (사용자에게 알린다)
+    duplicates: int = 0                              # 같은 사진이라 뺀 수
 
 
 MOTIONS = ("zoom_in", "zoom_out", "pan_left", "pan_right", "pan_up", "pan_down", "still")
@@ -34,12 +39,18 @@ VOICE_KEYS = ("female", "female_bright", "female_calm", "male", "male_deep", "hy
               "ava", "emma", "vivienne", "seraphina", "andrew", "brian", "florian")
 
 
+SECTIONS = ("opening", "intro", "body", "place", "review", "ending")
+SECTION_LABELS = {"opening": "오프닝", "intro": "여행 소개", "body": "여행 이야기", "place": "장소 소개",
+                  "review": "후기", "ending": "엔딩"}
+
+
 class Scene(BaseModel):
     text: str
     image_index: int | None
     duration: float | None = None
     audio_path: str | None = None
     place: str = ""  # 장소 이름표 (예: 통영 동피랑). 비면 표시 안 함
+    section: str = ""  # 대본 구성: SECTIONS 중 하나 (비면 표시 안 함)
     motion: str = "auto"      # 사진 움직임: auto 또는 MOTIONS 중 하나
     transition: str = "auto"  # 이 장면으로 들어올 때의 전환: auto 또는 TRANSITIONS 중 하나
 
@@ -51,6 +62,11 @@ class Scene(BaseModel):
     caption_pos: str = "auto"     # 자막 위치: auto(아래) 또는 CAPTION_POSITIONS
     strength: str = "auto"        # 움직임 세기: auto 또는 STRENGTHS
     hold: float = 0.0             # 더 머무는 시간(초)
+
+    @field_validator("section", mode="before")
+    @classmethod
+    def _known_section(cls, v):
+        return v if v in SECTIONS else ""
 
     @field_validator("look", mode="before")
     @classmethod
@@ -134,10 +150,29 @@ class RenderOptions(BaseModel):
         return v
 
 
-Stage = Literal["queued", "scraping", "loaded", "scripting", "ready", "directing", "tts", "rendering", "done", "error"]
+Stage = Literal["queued", "scraping", "loaded", "analyzing", "scripting", "ready", "directing", "tts", "rendering",
+                "done", "error"]
 # load: 글·사진만 불러온 상태(아직 작성 방법을 고르지 않음), manual: 직접 작성
 # auto("AI 없이")와 gemini(제미나이)는 없앴다. 예전에 저장된 작업을 열 수 있게 값만 남겨 둔다.
 ScriptMode = Literal["api", "auto", "gemini", "load", "manual"]
+
+
+SCRIPT_STYLES = {
+    "cinematic": "시네마틱 여행 다큐멘터리",
+    "vlog": "자연스러운 일상 브이로그",
+    "info": "여행 정보 전달형",
+    "essay": "감성적인 여행 에세이",
+    "review": "맛집·관광지 리뷰형",
+}
+
+
+class ScriptSettings(BaseModel):
+    """대본을 쓸 때 사용자가 정하는 것."""
+    style: Literal["cinematic", "vlog", "info", "essay", "review"] = "vlog"
+    length: Literal["auto", "1", "3", "5", "10"] = "auto"     # 목표 영상 길이(분). auto = 글 내용을 모두
+    tone: Literal["friendly", "calm", "cheerful", "polite"] = "friendly"
+    info_ratio: int = Field(default=50, ge=0, le=100)         # 0 = 감성 이야기 위주, 100 = 정보 위주
+    detail: Literal["brief", "normal", "detailed"] = "normal"  # 장소 소개 상세도
 
 
 class JobState(BaseModel):
@@ -149,6 +184,8 @@ class JobState(BaseModel):
     message: str = ""
     post: BlogPost | None = None
     script: VideoScript | None = None
+    analysis: dict | None = None        # AI 여행 분석 (app.ai.analyze.TravelAnalysis)
+    settings: ScriptSettings = Field(default_factory=ScriptSettings)
     options: RenderOptions = Field(default_factory=RenderOptions)
     video_path: str | None = None
     failed_phase: Literal["prepare", "script", "render"] | None = None

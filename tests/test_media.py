@@ -188,8 +188,11 @@ def test_music_file_endpoint_only_serves_music_folder(api):
 
 # ---------- 글 전체 담기 ----------
 def test_prompt_asks_for_whole_post_without_length_limit():
-    assert "빠짐없이" in SYSTEM and "제한이 없" in SYSTEM
-    assert "6~12" not in SYSTEM
+    """기본(분량 '글 전체')은 글 내용을 빠짐없이 담는다. 목표 길이는 사용자가 고를 때만."""
+    from app.script import writing_brief
+
+    assert "빠짐없이" in SYSTEM and "6~12" not in SYSTEM
+    assert "글 전체" in writing_brief()
 
 
 # ---------- 설치된 프로그램에서 유튜브 음악이 안 되던 문제 (PATH의 통과할 수 없는 폴더) ----------

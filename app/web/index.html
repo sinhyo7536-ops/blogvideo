@@ -27,6 +27,39 @@
         <input id="url" type="url" inputmode="url" autocomplete="off" placeholder="https://blog.naver.com/...">
       </label>
 
+      <details class="field script-settings" open>
+        <summary>대본 설정</summary>
+        <fieldset class="field">
+          <legend>대본 스타일</legend>
+          <div class="seg stack" data-name="sstyle">
+            <button type="button" data-value="cinematic">시네마틱 여행 다큐</button>
+            <button type="button" data-value="vlog" class="on">일상 브이로그</button>
+            <button type="button" data-value="info">여행 정보 전달</button>
+            <button type="button" data-value="essay">감성 여행 에세이</button>
+            <button type="button" data-value="review">맛집·관광지 리뷰</button>
+          </div>
+        </fieldset>
+        <div class="settings-grid">
+          <label class="field"><span>목표 영상 길이</span>
+            <select id="s-length">
+              <option value="auto">글 내용 전부 (길이 제한 없음)</option>
+              <option value="1">약 1분</option><option value="3">약 3분</option>
+              <option value="5">약 5분</option><option value="10">약 10분</option>
+            </select></label>
+          <label class="field"><span>말투와 분위기</span>
+            <select id="s-tone">
+              <option value="friendly">친근하게</option><option value="calm">차분하게</option>
+              <option value="cheerful">밝고 신나게</option><option value="polite">정중하게</option>
+            </select></label>
+          <label class="field"><span>장소 소개</span>
+            <select id="s-detail">
+              <option value="brief">간단히</option><option value="normal" selected>보통</option>
+              <option value="detailed">자세히</option>
+            </select></label>
+          <label class="field"><span>감성 ↔ 정보 <small class="muted" id="s-ratio-label"></small></span>
+            <input id="s-ratio" type="range" min="0" max="100" step="10" value="50"></label>
+        </div>
+      </details>
       <p class="muted mode-help"></p>
 
       <p class="error-text hidden" id="home-error" role="alert"></p>
@@ -144,6 +177,12 @@
         <label><input type="checkbox" id="opt-outro"> 끝 화면 넣기</label>
         <label><input type="checkbox" id="opt-title-bar"> 제목 띠·장소 이름표 넣기</label>
       </div>
+
+      <details class="analysis-panel hidden" id="analysis-panel">
+        <summary>AI 여행 분석 보기</summary>
+        <div id="analysis-body"></div>
+      </details>
+      <p class="warn-box hidden" id="photo-notice"></p>
 
       <h2>연출 요청</h2>
       <label class="field"><span>영상 전체 연출 요청 <small class="muted">비워 두어도 돼요</small></span>

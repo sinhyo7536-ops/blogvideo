@@ -769,3 +769,52 @@ def test_model_settings_screen(live_server, browser, monkeypatch):
     page.click("#open-settings")
     page.wait_for_selector("#model-list select")
     assert page.input_value('#model-list select[data-task="photos"]') == "claude-opus-5-5"
+
+
+# ---------- 4단계: 대본 설정, 여행 분석 보기 ----------
+def test_script_settings_sent_and_remembered(live_server, browser):
+    page = browser.new_page(viewport={"width": 390, "height": 844})
+    _open(page, live_server)
+    page.click('.seg[data-name="sstyle"] button[data-value="essay"]')
+    page.select_option("#s-length", "3")
+    page.select_option("#s-tone", "calm")
+    page.fill("#s-ratio", "20")
+    page.dispatch_event("#s-ratio", "input")
+    assert page.inner_text("#s-ratio-label") == "감성 위주"
+    assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+    page.click("#btn-load")
+    page.wait_for_selector(".scene-card", timeout=10000)
+    st = _job(page)["settings"]
+    assert (st["style"], st["length"], st["tone"], st["info_ratio"]) == ("essay", "3", "calm", 20)
+    page.on("dialog", lambda d: d.accept())
+    page.click("#go-home")
+    page.wait_for_selector("#view-home:not(.hidden)")
+    page.reload()
+    page.wait_for_selector("#btn-load")
+    assert page.locator('.seg[data-name="sstyle"] button.on').get_attribute("data-value") == "essay"
+    assert page.input_value("#s-length") == "3"
+
+
+def test_analysis_panel_and_photo_notice(tmp_path, monkeypatch, browser):
+    from app.ai.analyze import Note, PlaceInfo, TravelAnalysis
+
+    m = _start(tmp_path, monkeypatch)
+    m.steps.analyze = lambda post, key: TravelAnalysis(
+        theme="통영 바다 여행", period="10월", places=[PlaceInfo(name="동피랑", kind="관광지", evidence="글에 나옴",
+                                                             experience="벽화를 구경했어요"),
+                                                   PlaceInfo(name="강구안", kind="자연", evidence="추론")],
+        episodes=[Note(text="길을 헤맸어요", evidence="글에 나옴")], missing_info=["숙소 이름이 글에 없음"])
+    real_dl = m.steps.download_images
+    m.steps.download_images = lambda post, dest: real_dl(post, dest).model_copy(
+        update={"missing": ["2번째 사진"], "duplicates": 1})
+    for base in _serve(m):
+        page = browser.new_page(viewport={"width": 1280, "height": 800})
+        _to_edit(page, base)
+        assert page.is_visible("#analysis-panel")
+        page.click("#analysis-panel summary")
+        body = page.inner_text("#analysis-body")
+        assert "통영 바다 여행" in body and "동피랑" in body and "벽화를 구경했어요" in body and "숙소 이름이 글에 없음" in body
+        assert page.locator("#analysis-body .evidence.guess").count() == 1
+        notice = page.inner_text("#photo-notice")
+        assert "1장을 받지 못했어요" in notice and "2번째 사진" in notice and "같은 사진 1장" in notice
+        page.close()

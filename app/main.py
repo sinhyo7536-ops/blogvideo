@@ -17,7 +17,7 @@ from pydantic import BaseModel
 from app import config
 from app.errors import UserError
 from app.jobs import JobManager, Steps
-from app.models import JobState, RenderOptions, VideoScript
+from app.models import JobState, RenderOptions, ScriptSettings, VideoScript
 from app.paths import jobs_dir, music_dirs, resource_path, user_music_dir
 from app.scraper.naver import validate_url
 
@@ -70,6 +70,7 @@ def default_steps() -> Steps:
     from app.render import render_video, stop_current
     from app.scraper.naver import download_images, fetch_post
     from app.script import generate_script
+    from app.ai.analyze import analyze
     from app.director import direct
     from app.tts import preview, synthesize_all
     from app.ytmusic import fetch_audio
@@ -77,7 +78,9 @@ def default_steps() -> Steps:
     return Steps(fetch_post=fetch_post, download_images=download_images, generate_script=generate_script,
                  synthesize_all=synthesize_all, render_video=render_video,
                  api_key=lambda: config.load_config().get("anthropic_api_key", ""),
-                 voice_preview=preview, fetch_music=fetch_audio, abort=stop_current, direct=direct,
+                 voice_preview=preview, fetch_music=fetch_audio, abort=stop_current, direct=direct, analyze=analyze,
+                 write_script=lambda post, key, analysis, settings, voice: generate_script(
+                     post, key, analysis=analysis, settings=settings, voice=voice),
                  channel_name=lambda: config.load_config().get("channel_name", ""))
 
 
@@ -85,10 +88,13 @@ class CreateJob(BaseModel):
     url: str
     options: RenderOptions = RenderOptions()
     mode: Literal["api", "load", "manual"] = "api"   # load: 글·사진만, manual: 불러온 뒤 바로 직접 작성
+    settings: ScriptSettings = ScriptSettings()
 
 
 class WriteMode(BaseModel):
     mode: Literal["api", "manual"]
+    settings: ScriptSettings | None = None
+    reanalyze: bool = False
 
 
 class VoicePreview(BaseModel):
@@ -220,13 +226,13 @@ def create_app(manager: JobManager | None = None) -> FastAPI:
     def create_job(body: CreateJob):
         url = validate_url(body.url)
         need_key(body.mode)
-        return _public(manager.create(url, body.options, body.mode))
+        return _public(manager.create(url, body.options, body.mode, body.settings))
 
     @app.post("/api/jobs/{job_id}/write")
     def write(job_id: str, body: WriteMode):
         """불러온 글로 대본 만들기: Claude(api) 또는 직접 작성(manual)."""
         need_key(body.mode)
-        return _public(manager.write(job_id, body.mode))
+        return _public(manager.write(job_id, body.mode, body.settings, body.reanalyze))
 
     @app.get("/api/jobs/{job_id}")
     def get_job(job_id: str):

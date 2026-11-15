@@ -67,6 +67,26 @@ def _clean(text: str) -> str:
     return re.sub(r"\s+", " ", _INVISIBLE.sub("", text)).strip()
 
 
+def absolute_date(text: str, now=None) -> str:
+    """'12시간 전', '어제' 같은 상대 날짜를 '2026. 11. 15.' 로 바꾼다. 이미 날짜면 그대로."""
+    import datetime as dt
+
+    now = now or dt.datetime.now()
+    t = text.strip()
+    m = re.fullmatch(r"(\d+)\s*(분|시간|일)\s*전", t)
+    if m:
+        n, unit = int(m.group(1)), m.group(2)
+        delta = {"분": dt.timedelta(minutes=n), "시간": dt.timedelta(hours=n), "일": dt.timedelta(days=n)}[unit]
+        d = now - delta
+    elif t in ("방금 전", "방금"):
+        d = now
+    elif t == "어제":
+        d = now - dt.timedelta(days=1)
+    else:
+        return t
+    return f"{d.year}. {d.month}. {d.day}."
+
+
 def extract_post(html: str, url: str) -> BlogPost:
     soup = BeautifulSoup(html, "lxml")
     container = soup.select_one(".se-main-container")
@@ -75,18 +95,24 @@ def extract_post(html: str, url: str) -> BlogPost:
     title_el = soup.select_one(".se-title-text")
     og = soup.find("meta", property="og:title")
     title = _clean(title_el.get_text(" ")) if title_el else _clean(og["content"]) if og else ""
-    paragraphs = [t for p in container.select(".se-text-paragraph") if (t := _clean(p.get_text(" ")))]
-    images = []
-    for img in container.select("img.se-image-resource"):
-        src = img.get("data-lazy-src") or img.get("src") or ""
-        if src.startswith("http"):
-            images.append(ImageRef(url=_hires(src)))
+    paragraphs: list[str] = []
+    images: list[ImageRef] = []
+    # 글과 사진을 나온 순서대로 훑어, 사진마다 "바로 앞 문단" 번호를 남긴다 (본문 ↔ 사진 연결 단서)
+    for el in container.select(".se-text-paragraph, img.se-image-resource"):
+        if el.name == "img":
+            src = el.get("data-lazy-src") or el.get("src") or ""
+            if src.startswith("http"):
+                images.append(ImageRef(url=_hires(src), para=len(paragraphs) - 1))
+        elif t := _clean(el.get_text(" ")):
+            paragraphs.append(t)
     if not paragraphs and not images:
         raise UserError(UNREADABLE)
     site = soup.find("meta", property="og:site_name")
     blog_name = _clean(site.get("content") or "") if site else ""
     blog_name = blog_name.split("|")[-1].strip()  # "네이버 블로그 | 이름" → "이름"
-    return BlogPost(title=title, paragraphs=paragraphs, images=images, url=url, blog_name=blog_name)
+    date_el = soup.select_one(".blog_date .txt, .se_publishDate, .blog_date")
+    date = absolute_date(_clean(date_el.get_text(" "))) if date_el else ""
+    return BlogPost(title=title, paragraphs=paragraphs, images=images, url=url, blog_name=blog_name, date=date)
 
 
 def _client() -> httpx.Client:
@@ -122,24 +148,62 @@ def _get_image(c: httpx.Client, url: str) -> bytes | None:
     return r.content if r.status_code == 200 and r.content else None
 
 
-def download_images(post: BlogPost, dest: Path, client: httpx.Client | None = None) -> BlogPost:
+def image_hash(data: bytes) -> int | None:
+    """사진 지문(dHash 64비트). 크기·압축이 달라도 같은 사진이면 거의 같은 값이 나온다."""
+    import io
+
+    from PIL import Image, ImageOps
+
+    try:
+        with Image.open(io.BytesIO(data)) as im:
+            g = ImageOps.exif_transpose(im).convert("L").resize((9, 8), Image.LANCZOS)
+    except Exception:
+        return None
+    px = list(g.tobytes())
+    bits = 0
+    for row in range(8):
+        for col in range(8):
+            bits = (bits << 1) | (px[row * 9 + col] > px[row * 9 + col + 1])
+    return bits
+
+
+def same_photo(a: int, b: int, limit: int = 4) -> bool:
+    return bin(a ^ b).count("1") <= limit
+
+
+def download_images(post: BlogPost, dest: Path, client: httpx.Client | None = None,
+                    known: list[int] | None = None) -> BlogPost:
+    """사진을 받는다. 못 받은 사진은 post.missing 에, 같은 사진(다른 글에 있던 것 포함)은 빼고 post.duplicates 에 센다.
+    known: 이미 받은 사진들의 지문(여러 글을 합칠 때 다른 글의 사진과 겹치는지 보려고)."""
     dest.mkdir(parents=True, exist_ok=True)
     own = client is None
     c = client or _client()
     kept: list[ImageRef] = []
+    missing = list(post.missing)
+    dups = post.duplicates
+    seen = known if known is not None else []
     try:
-        for img in post.images:
+        for n, img in enumerate(post.images, start=1):
             big = original_url(img.url)
             data = (_get_image(c, big) if big else None) or _get_image(c, img.url)  # 원본 우선, 안 되면 966px
             if not data:
+                missing.append(f"{n}번째 사진 (문단 {img.para + 2}번 근처)" if img.para >= 0 else f"{n}번째 사진")
                 continue
-            path = dest / f"img_{len(kept):02d}.jpg"
+            h = image_hash(data)
+            if h is None:
+                missing.append(f"{n}번째 사진 (열 수 없는 파일)")
+                continue
+            if any(same_photo(h, k) for k in seen):
+                dups += 1
+                continue
+            seen.append(h)
+            path = dest / f"img_{len(list(dest.glob('img_*.jpg'))):02d}.jpg"
             path.write_bytes(data)
-            kept.append(ImageRef(url=img.url, local_path=str(path)))
+            kept.append(img.model_copy(update={"local_path": str(path)}))
     finally:
         if own:
             c.close()
-    return post.model_copy(update={"images": kept})
+    return post.model_copy(update={"images": kept, "missing": missing, "duplicates": dups})
 
 
 def validate_url(url: str) -> str:

@@ -26,13 +26,14 @@ const TRANSITION_LABEL = {
 const STAGE_LABEL = {
   queued: "순서를 기다리는 중",
   scraping: "글과 사진 불러오는 중",
+  analyzing: "AI가 여행을 분석하는 중",
   scripting: "AI가 대본 쓰는 중",
   directing: "AI가 연출을 정하는 중",
   tts: "목소리 만드는 중",
   rendering: "영상 만드는 중",
 };
 const CANCEL_LABEL = {
-  queued: "멈추기", scraping: "불러오기 멈추기", scripting: "대본 쓰기 멈추기",
+  queued: "멈추기", scraping: "불러오기 멈추기", analyzing: "분석 멈추기", scripting: "대본 쓰기 멈추기",
   directing: "영상 만들기 멈추기", tts: "영상 만들기 멈추기", rendering: "영상 만들기 멈추기",
 };
 const STORE_KEY = "blogvideo.jobId";
@@ -329,6 +330,102 @@ async function cancelJob() {
   }
 }
 
+// ---------- 대본 설정 ----------
+const SETTINGS_KEY = "blogvideo.scriptSettings";
+const SECTION_LABEL = { opening: "오프닝", intro: "여행 소개", body: "여행 이야기", place: "장소 소개",
+                        review: "후기", ending: "엔딩" };
+const EVIDENCE_CLASS = { "글에 나옴": "fact", "사진에서 봄": "photo", "추론": "guess" };
+
+function scriptSettings() {
+  return { style: segValue("sstyle") || "vlog", length: $("s-length").value, tone: $("s-tone").value,
+           info_ratio: Number($("s-ratio").value), detail: $("s-detail").value };
+}
+
+function showRatio() {
+  const v = Number($("s-ratio").value);
+  $("s-ratio-label").textContent = v >= 70 ? "정보 위주" : v <= 30 ? "감성 위주" : "반반";
+}
+
+function loadScriptSettings() {
+  let s = {};
+  try { s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}"); } catch (e) { s = {}; }
+  if (s.style) setSeg("sstyle", s.style);
+  if (s.length) $("s-length").value = s.length;
+  if (s.tone) $("s-tone").value = s.tone;
+  if (s.detail) $("s-detail").value = s.detail;
+  if (s.info_ratio !== undefined) $("s-ratio").value = s.info_ratio;
+  showRatio();
+}
+
+function saveScriptSettings() {
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(scriptSettings()));
+}
+
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text !== undefined) e.textContent = text;
+  return e;
+}
+
+function renderAnalysis(job) {
+  const panel = $("analysis-panel");
+  const body = $("analysis-body");
+  const a = job.analysis;
+  panel.classList.toggle("hidden", !a);
+  body.innerHTML = "";
+  if (a) {
+    const facts = [["주제", a.theme], ["지역", a.region], ["기간", a.period], ["동행", a.companions],
+                   ["가장 흥미로운 장면", a.best_moment]];
+    const dl = el("dl", "facts");
+    facts.forEach(([k, v]) => { if (v) { dl.append(el("dt", "", k), el("dd", "", v)); } });
+    body.appendChild(dl);
+    if (a.days && a.days.length) {
+      body.appendChild(el("h3", "", "일정"));
+      const ul = el("ul");
+      a.days.forEach((d) => ul.appendChild(el("li", "", `${d.day}일차${d.date ? " (" + d.date + ")" : ""}: ${d.summary || ""} ${d.places.length ? "— " + d.places.join(", ") : ""}`)));
+      body.appendChild(ul);
+    }
+    if (a.places && a.places.length) {
+      body.appendChild(el("h3", "", "방문한 곳"));
+      const ul = el("ul", "places");
+      a.places.forEach((p) => {
+        const li = el("li");
+        li.append(el("b", "", p.name), el("span", "kind", p.kind),
+                  el("span", "evidence " + (EVIDENCE_CLASS[p.evidence] || "guess"), p.evidence));
+        if (p.summary) li.appendChild(el("div", "muted", p.summary));
+        if (p.experience) li.appendChild(el("div", "", "경험: " + p.experience));
+        ul.appendChild(li);
+      });
+      body.appendChild(ul);
+    }
+    const notes = [].concat((a.highlights || []).map((n) => ["인상적인 경험", n]), (a.episodes || []).map((n) => ["에피소드", n]));
+    if (notes.length) {
+      body.appendChild(el("h3", "", "경험과 에피소드"));
+      const ul = el("ul");
+      notes.forEach(([k, n]) => {
+        const li = el("li", "", `${k}: ${n.text} `);
+        li.appendChild(el("span", "evidence " + (EVIDENCE_CLASS[n.evidence] || "guess"), n.evidence));
+        ul.appendChild(li);
+      });
+      body.appendChild(ul);
+    }
+    if (a.missing_info && a.missing_info.length) {
+      body.appendChild(el("h3", "", "글에 없어서 모르는 것"));
+      const ul = el("ul");
+      a.missing_info.forEach((m) => ul.appendChild(el("li", "muted", m)));
+      body.appendChild(ul);
+    }
+    body.appendChild(el("p", "muted", "표시: 글에 나옴 = 본문에 적혀 있음 · 사진에서 봄 = 사진으로만 확인 · 추론 = AI가 짐작한 것(대본에서는 단정하지 않아요)"));
+  }
+  const post = job.post || {};
+  const notice = [];
+  if (post.missing && post.missing.length) notice.push(`사진 ${post.missing.length}장을 받지 못했어요: ${post.missing.join(", ")}. 영상에는 들어가지 않아요.`);
+  if (post.duplicates) notice.push(`같은 사진 ${post.duplicates}장은 한 장만 남겼어요.`);
+  $("photo-notice").textContent = notice.join(" ");
+  $("photo-notice").classList.toggle("hidden", !notice.length);
+}
+
 // mode: api = Claude가 바로 대본을 씀, manual = 글·사진만 불러와 직접 작성
 async function startLoad(mode) {
   setError("home-error", "");
@@ -337,7 +434,8 @@ async function startLoad(mode) {
   const buttons = [$("btn-load"), $("btn-home-manual")];
   buttons.forEach((b) => { b.disabled = true; });
   try {
-    routeJob(await api("POST", "/api/jobs", { url, mode }));
+    saveScriptSettings();
+    routeJob(await api("POST", "/api/jobs", { url, mode, settings: scriptSettings() }));
   } catch (e) {
     setError("home-error", e.message);
   } finally {
@@ -415,7 +513,8 @@ async function writeScript(mode) {
   const buttons = [$("btn-recommend"), $("btn-manual")];
   buttons.forEach((b) => { b.disabled = true; });
   try {
-    routeJob(await api("POST", `/api/jobs/${state.job.id}/write`, { mode }));
+    saveScriptSettings();
+    routeJob(await api("POST", `/api/jobs/${state.job.id}/write`, { mode, settings: scriptSettings() }));
   } catch (e) {
     setError("source-error", e.message);
   } finally {
@@ -467,6 +566,7 @@ function openEdit(job) {
     panel.appendChild(b);
   });
   $("source-panel").open = manual;
+  renderAnalysis(job);
   renderScenes();
   setError("edit-error", "");
   show("edit");
@@ -502,6 +602,7 @@ function renderScenes() {
     const num = document.createElement("span");
     num.className = "scene-num";
     num.textContent = `장면 ${i + 1}`;
+    if (SECTION_LABEL[scene.section]) num.appendChild(el("span", "section-tag", SECTION_LABEL[scene.section]));
     const tools = document.createElement("div");
     tools.className = "scene-tools";
     const mk = (label, title, fn, disabled) => {
@@ -677,7 +778,7 @@ function addScene(text, imageIndex, at) {
     idx = imageCount() ? (prev === null || prev === undefined ? 0 : Math.min(prev + 1, imageCount() - 1)) : null;
   }
   scenes.splice(pos, 0, { text: typeof text === "string" ? text : "", image_index: idx, place: "",
-                          motion: "auto", transition: "auto" });
+                          motion: "auto", transition: "auto", section: "" });
   state.selected = pos;
   renderScenes();
   focusScene(pos);
@@ -752,6 +853,7 @@ function collectScript() {
     .map((s) => ({ text: s.text.trim(), image_index: s.image_index, place: (s.place || "").trim(),
                    motion: s.motion || "auto", transition: s.transition || "auto",
                    direction: (s.direction || "").trim(), direction_done: s.direction_done || "",
+                   section: s.section || "",
                    look: s.look || "auto", caption_size: s.caption_size || "auto",
                    caption_pos: s.caption_pos || "auto", strength: s.strength || "auto", hold: s.hold || 0 }))
     .filter((s) => s.text);
@@ -1045,6 +1147,7 @@ function goHome(clear) {
   show("home");
 }
 
+$("s-ratio").addEventListener("input", showRatio);
 $("btn-voice-play").onclick = previewVoice;
 $("btn-bgm-play").onclick = previewBgm;
 $("btn-yt-music").onclick = fetchYoutubeMusic;
@@ -1101,6 +1204,7 @@ window.addEventListener("pagehide", () => {
 
 (async function init() {
   try {
+    loadScriptSettings();
     await Promise.all([loadInfo(), loadMusic(), loadVoices()]);
   } catch (e) {
     setError("home-error", e.message);

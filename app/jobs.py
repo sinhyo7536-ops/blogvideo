@@ -27,7 +27,7 @@ STOPPED = "불러오기를 멈췄어요."
 class Cancelled(Exception):
     """사용자가 \"멈추기\"를 눌렀다."""
 
-_ACTIVE = {"queued", "scraping", "scripting", "directing", "tts", "rendering"}
+_ACTIVE = {"queued", "scraping", "analyzing", "scripting", "directing", "tts", "rendering"}
 NO_AI_KEY = "연출 요청을 반영하려면 Claude API 키가 필요해요. 설정에서 키를 넣거나, 연출 요청 칸을 비워 주세요."
 
 
@@ -40,6 +40,8 @@ class Steps:
     render_video: Callable
     api_key: Callable[[], str]
     channel_name: Callable[[], str] = lambda: ""   # 설정의 채널 이름 (비면 블로그 이름)
+    analyze: Callable | None = None         # (글, 키) → 여행 분석 (app.ai.analyze)
+    write_script: Callable | None = None    # (글, 키, 분석, 설정, 목소리) → 대본. 없으면 generate_script(글, 키)
     direct: Callable | None = None          # (대본, 설정, 키) → (대본, 설정): 연출 요청 반영
     abort: Callable | None = None           # 돌고 있는 외부 작업(FFmpeg)을 바로 끝낸다
     voice_preview: Callable | None = None   # (목소리, 속도, 저장할 파일) → 파일
@@ -122,8 +124,10 @@ class JobManager:
         return self.root / job_id
 
     # ---------- 공개 동작 ----------
-    def create(self, url: str, options: RenderOptions, mode: str = "api") -> JobState:
+    def create(self, url: str, options: RenderOptions, mode: str = "api", settings=None) -> JobState:
         s = JobState(id=uuid.uuid4().hex[:12], url=url, options=options, mode=mode)
+        if settings is not None:
+            s = s.model_copy(update={"settings": settings})
         with self._lock:
             self._jobs[s.id] = s
             self._save(s)
@@ -189,13 +193,17 @@ class JobManager:
         else:
             self._set(job_id, stage="error", message=STOPPED, failed_phase="prepare")
 
-    def write(self, job_id: str, mode: str) -> JobState:
+    def write(self, job_id: str, mode: str, settings=None, reanalyze: bool = False) -> JobState:
         """불러온 글로 대본 만들기. manual이면 빈 대본으로 바로 편집 화면으로, 나머지는 AI/자동 작성."""
         s = self.get(job_id)
         if s.stage in _ACTIVE:
             raise UserError(BUSY)
         if s.post is None:
             raise UserError(NO_POST)
+        if settings is not None:
+            self._set(job_id, settings=settings)
+        if reanalyze:
+            self._set(job_id, analysis=None)
         if mode == "manual":
             return self._set(job_id, mode="manual", script=blank_script(s.post), stage="ready", progress=1.0,
                              message="", failed_phase=None)
@@ -278,9 +286,18 @@ class JobManager:
         self._write(job_id)
 
     def _write(self, job_id: str) -> None:
-        s = self._set(job_id, stage="scripting", progress=0.3)
+        s = self.get(job_id)
+        if s.analysis is None and self.steps.analyze is not None:   # 대본 전에 여행 분석 (한 번 해 두면 다시 씀)
+            self._set(job_id, stage="analyzing", progress=0.3)
+            analysis = self.steps.analyze(s.post, self.steps.api_key())
+            self._check(job_id)
+            s = self._set(job_id, analysis=analysis.model_dump() if hasattr(analysis, "model_dump") else analysis)
+        s = self._set(job_id, stage="scripting", progress=0.6)
         post, mode = s.post, s.mode
-        script = self.steps.generate_script(post, self.steps.api_key())   # 예전 "gemini" 작업도 Claude로
+        if self.steps.write_script is not None:   # 예전 "gemini" 작업도 Claude로
+            script = self.steps.write_script(post, self.steps.api_key(), s.analysis, s.settings, s.options.voice)
+        else:
+            script = self.steps.generate_script(post, self.steps.api_key())
         self._check(job_id)   # AI가 쓰는 동안 멈췄으면 결과를 버린다
         self._set(job_id, script=script, stage="ready", progress=1.0)
 

@@ -230,3 +230,24 @@ button.photo:hover, button.photo:focus-visible { border-color: var(--primary); }
 @media (min-width: 720px) {
   .model-row { grid-template-columns: 1fr 1fr; align-items: center; }
 }
+
+/* 대본 설정, 여행 분석 */
+.script-settings { border: 1px solid var(--line); border-radius: 12px; padding: .6rem .8rem; }
+.script-settings summary { font-weight: 700; cursor: pointer; min-height: 32px; }
+.settings-grid { display: grid; gap: .2rem .8rem; }
+.settings-grid .field { margin: .5rem 0; }
+.settings-grid input[type=range] { width: 100%; }
+@media (min-width: 720px) { .settings-grid { grid-template-columns: 1fr 1fr; } }
+.analysis-panel { border: 1px solid var(--line); border-radius: 12px; padding: .6rem .8rem; margin: .8rem 0; }
+.analysis-panel summary { font-weight: 700; cursor: pointer; min-height: 32px; }
+.analysis-panel h3 { font-size: 1rem; margin: .8rem 0 .3rem; }
+.analysis-panel ul { margin: 0; padding-left: 1.1rem; display: grid; gap: .35rem; }
+.analysis-panel .facts { display: grid; grid-template-columns: max-content 1fr; gap: .2rem .7rem; margin: .4rem 0; }
+.analysis-panel dt { font-weight: 600; }
+.analysis-panel dd { margin: 0; overflow-wrap: anywhere; }
+.places .kind { margin-left: .4rem; font-size: .8rem; color: #555; }
+.evidence { display: inline-block; margin-left: .4rem; padding: 0 .45rem; border-radius: 9px; font-size: .75rem; line-height: 1.5; }
+.evidence.fact { background: #e6f4ea; color: #1a7f37; }
+.evidence.photo { background: #e8f0fe; color: #1f5fbf; }
+.evidence.guess { background: #fff4e5; color: #a35a00; }
+.section-tag { margin-left: .5rem; padding: 0 .45rem; border-radius: 9px; background: #eef1f6; font-size: .75rem; font-weight: 600; }
