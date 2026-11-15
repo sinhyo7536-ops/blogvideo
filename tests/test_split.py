@@ -12,7 +12,7 @@ from app.models import BlogPost, ImageRef, RenderOptions, Scene, VideoScript
 from app.render import XFADE, _build_segments, _motion_chain
 from app.script import SYSTEM, ScriptDraft, SceneDraft, generate_script, photos_for_ai
 from tests.conftest import make_silence
-from tests.fakes import fake_steps, wait_stage
+from tests.fakes import render_job, fake_steps, wait_stage
 
 URL = "https://blog.naver.com/a/1"
 
@@ -66,7 +66,7 @@ def test_load_needs_no_api_key(tmp_path, monkeypatch):
 def test_render_before_writing_is_refused(api):
     c, manager, _ = api
     job_id = _load(c, manager)
-    assert c.post(f"/api/jobs/{job_id}/render").status_code == 400
+    assert render_job(c, job_id).status_code == 400
 
 
 # ---------- 추천대로 작성 ----------
@@ -132,7 +132,7 @@ def test_manual_scenes_keep_chosen_effects(api):
     r = c.put(f"/api/jobs/{job_id}/script", json={"script": script, "options": job["options"]})
     scene = r.json()["script"]["scenes"][0]
     assert (scene["motion"], scene["transition"], scene["place"]) == ("pan_left", "circle", "동피랑")
-    c.post(f"/api/jobs/{job_id}/render")
+    render_job(c, job_id)
     wait_stage(manager, job_id, "done")
 
 

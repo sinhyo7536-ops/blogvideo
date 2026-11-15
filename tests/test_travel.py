@@ -1,5 +1,7 @@
 """여행 영상 기능: 스타일 3종, 시작·끝 화면, 제목 띠·장소 이름표, 전환·움직임, 썸네일."""
 import json
+
+from tests.fakes import render_job
 import subprocess
 from pathlib import Path
 
@@ -208,7 +210,7 @@ def test_render_gets_channel_from_settings_or_blog_name(tmp_path, monkeypatch):
     for expected in ("블로그 이름", "내 채널"):
         job = c.post("/api/jobs", json={"url": "https://blog.naver.com/a/1", "mode": "api"}).json()
         wait_stage(manager, job["id"], "ready")
-        c.post(f"/api/jobs/{job['id']}/render")
+        render_job(c, job['id'])
         wait_stage(manager, job["id"], "done")
         assert seen[-1] == expected
         name["v"] = "내 채널"
@@ -222,7 +224,7 @@ def test_thumbnail_endpoint(tmp_path, monkeypatch):
                                     "options": {"template": "vlog", "effects": "soft"}}).json()
     assert job["options"]["template"] == "vlog"
     wait_stage(manager, job["id"], "ready")
-    c.post(f"/api/jobs/{job['id']}/render")
+    render_job(c, job['id'])
     s = wait_stage(manager, job["id"], "done")
     assert c.get(f"/api/jobs/{job['id']}").json()["has_thumbnail"] is False
     assert c.get(f"/api/jobs/{job['id']}/thumbnail").status_code == 404

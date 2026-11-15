@@ -15,7 +15,7 @@ from app.main import create_app
 from app.models import BlogPost, ImageRef, RenderOptions, Scene, VideoScript
 from app.render import LOOK, STRENGTH, ZOOM, _build_segments
 from tests.conftest import make_silence
-from tests.fakes import fake_steps, wait_stage
+from tests.fakes import render_job, fake_steps, wait_stage
 
 URL = "https://blog.naver.com/a/1"
 
@@ -207,12 +207,12 @@ def test_render_runs_director_first_and_keeps_result(api):
     manager.steps.synthesize_all = lambda script, *a, **k: (spoken.append(script.scenes[0].text), real_tts(script, *a, **k))[1]
     manager.steps.direct = fake_direct
     job_id = _ready_with(c, manager, direction="흑백으로, 더 짧게")
-    c.post(f"/api/jobs/{job_id}/render")
+    render_job(c, job_id)
     s = wait_stage(manager, job_id, "done")
     assert calls == [("sk-ant-test1234", "흑백으로, 더 짧게")]
     assert spoken == ["AI가 줄인 글"]                              # 성우는 AI가 고친 글을 읽음
     assert (s.script.scenes[0].look, s.script.scenes[0].text, s.options.template) == ("bw", "AI가 줄인 글", "mood")
-    c.post(f"/api/jobs/{job_id}/render")                          # 요청을 안 고치고 다시 만들면 AI를 또 부르지 않음
+    render_job(c, job_id)                          # 요청을 안 고치고 다시 만들면 AI를 또 부르지 않음
     wait_stage(manager, job_id, "done")
     assert len(calls) == 1
 
@@ -221,7 +221,7 @@ def test_render_without_requests_never_calls_ai(api):
     c, manager = api
     manager.steps.direct = lambda *a: (_ for _ in ()).throw(AssertionError("연출 요청이 없으면 부르면 안 됨"))
     job_id = _ready_with(c, manager)
-    c.post(f"/api/jobs/{job_id}/render")
+    render_job(c, job_id)
     wait_stage(manager, job_id, "done")
 
 
@@ -231,7 +231,7 @@ def test_director_failure_stops_render_with_clear_message(api):
 
     manager.steps.direct = lambda *a: (_ for _ in ()).throw(UserError("AI 서버가 바빠요. 잠시 뒤 다시 시도해 주세요."))
     job_id = _ready_with(c, manager, direction="크게")
-    c.post(f"/api/jobs/{job_id}/render")
+    render_job(c, job_id)
     s = wait_stage(manager, job_id, "error")
     assert s.failed_phase == "render" and "바빠요" in s.message and s.script.scenes[0].direction == "크게"
 
@@ -241,7 +241,7 @@ def test_no_key_at_all_asks_to_add_one(api):
     job_id = _ready_with(c, manager, direction="크게")
     manager.steps.direct = lambda *a: (_ for _ in ()).throw(AssertionError("키가 없으면 부르면 안 됨"))
     manager.steps.api_key = lambda: ""
-    c.post(f"/api/jobs/{job_id}/render")
+    render_job(c, job_id)
     assert "키" in wait_stage(manager, job_id, "error").message
 
 

@@ -37,9 +37,14 @@ const CANCEL_LABEL = {
   directing: "영상 만들기 멈추기", tts: "영상 만들기 멈추기", rendering: "영상 만들기 멈추기",
 };
 const STORE_KEY = "blogvideo.jobId";
+const AI_PRESETS = [["natural", "자연스럽게"], ["youtuber", "유튜버 말투"], ["emotion", "감성 더하기"],
+                    ["plain", "과장 줄이기"], ["shorter", "30% 줄이기"], ["longer", "조금 길게"],
+                    ["experience", "경험이 드러나게"], ["friendly", "친근하게"], ["polite", "정중하게"]];
+const AUTOSAVE_MS = 1200;
 
 const state = { info: null, job: null, script: null, options: null, music: [], pollTimer: null, pickerScene: -1,
-                selected: null, cancelling: false };
+                selected: null, cancelling: false, opening: false, saveTimer: null, saving: null, dirty: false,
+                ai: null };
 
 // ---------- 공통 ----------
 async function api(method, path, body) {
@@ -567,7 +572,12 @@ function openEdit(job) {
   });
   $("source-panel").open = manual;
   renderAnalysis(job);
+  state.opening = true;
   renderScenes();
+  state.opening = false;
+  state.dirty = false;
+  showSaved("");
+  showConfirm(job.is_confirmed);
   setError("edit-error", "");
   show("edit");
 }
@@ -667,7 +677,12 @@ function renderScenes() {
     mkSelect(MOTION_LABEL, "motion", "사진 움직임");
     mkSelect(TRANSITION_LABEL, "transition", "장면 전환");
 
+    const more = document.createElement("details");
+    more.className = "direction-more";
+    more.open = !!(scene.direction || "").trim();
+    more.appendChild(el("summary", "", "연출 요청 더 보기"));
     const want = document.createElement("textarea");
+    more.appendChild(want);
     want.className = "direction";
     want.rows = 2;
     want.maxLength = 400;
@@ -709,10 +724,18 @@ function renderScenes() {
     act("+ 뒤에 추가", "이 장면 뒤에 빈 장면 넣기", () => addScene("", null, i + 1));
     act("복제", "이 장면을 똑같이 하나 더 만들기", () => duplicateScene(i));
     act("나누기", "자막의 커서 위치에서 장면을 둘로 나누기", () => splitScene(i, ta));
+    const aiBtn = document.createElement("button");
+    aiBtn.type = "button";
+    aiBtn.className = "ai-fix";
+    aiBtn.textContent = "AI로 고치기";
+    aiBtn.title = "이 장면의 글만 AI가 고쳐요";
+    aiBtn.onclick = (e) => { e.stopPropagation(); openAiDialog([i]); };
+    actions.prepend(aiBtn);
 
-    li.append(head, thumb, ta, count, place, pickers, want, applied, actions);
+    li.append(head, thumb, ta, count, place, pickers, more, applied, actions);
     list.appendChild(li);
   });
+  markDirty();
 }
 
 function updateSummary() {
@@ -869,25 +892,338 @@ function collectScript() {
   };
 }
 
-async function startRender() {
+function collectOptions() {
+  return { aspect: segValue("aspect"), voice: $("voice").value || "female",
+           speed: segValue("speed") || "normal", quality: segValue("quality") || "1080p",
+           bgm: $("bgm-edit").value || null,
+           template: segValue("template") || "clean", effects: segValue("effects") || "auto",
+           intro: $("opt-intro").checked, outro: $("opt-outro").checked,
+           title_bar: $("opt-title-bar").checked };
+}
+
+// ---------- 자동 저장 · 대본 확정 ----------
+function markDirty() {
+  if (state.opening || state.view !== "edit" || !state.job) return;
+  state.dirty = true;
+  showConfirm(false);
+  showSaved("고치는 중…");
+  clearTimeout(state.saveTimer);
+  state.saveTimer = setTimeout(() => saveNow().catch(() => {}), AUTOSAVE_MS);
+}
+
+function showSaved(text) {
+  $("save-status").textContent = text;
+}
+
+function showConfirm(ok) {
+  $("confirm-status").textContent = ok
+    ? "✓ 대본을 확정했어요. 이 대본으로 영상을 만들어요."
+    : "대본을 끝까지 확인한 뒤 '대본 확정'을 눌러 주세요. 확정한 뒤에 고치면 다시 확정해야 해요.";
+  $("confirm-box").classList.toggle("done", !!ok);
+  $("btn-confirm").disabled = !!ok;
+  $("btn-render").textContent = ok ? "영상 만들기" : "대본 확정하고 영상 만들기";
+}
+
+// label: 있으면 바꾸기 전 대본을 버전으로 남긴다
+async function saveNow(label) {
+  clearTimeout(state.saveTimer);
+  if (state.saving) await state.saving.catch(() => {});
+  if (!state.dirty && !label) return state.job;
+  state.dirty = false;
+  const body = { script: collectScript(), options: collectOptions(), version_label: label || "" };
+  showSaved("저장하는 중…");
+  state.saving = api("PUT", `/api/jobs/${state.job.id}/script`, body);
+  try {
+    const job = await state.saving;
+    state.job = job;
+    showSaved("저장됨 ✓");
+    showConfirm(job.is_confirmed);
+    return job;
+  } catch (e) {
+    state.dirty = true;
+    showSaved("저장하지 못했어요");
+    throw e;
+  } finally {
+    state.saving = null;
+  }
+}
+
+async function confirmScript() {
   setError("edit-error", "");
   const script = collectScript();
-  if (!script.scenes.length) return setError("edit-error", "자막이 있는 장면이 하나 이상 있어야 해요.");
-  const options = { aspect: segValue("aspect"), voice: $("voice").value || "female",
-                    speed: segValue("speed") || "normal", quality: segValue("quality") || "1080p",
-                    bgm: $("bgm-edit").value || null,
-                    template: segValue("template") || "clean", effects: segValue("effects") || "auto",
-                    intro: $("opt-intro").checked, outro: $("opt-outro").checked,
-                    title_bar: $("opt-title-bar").checked };
+  if (!script.scenes.length) {
+    setError("edit-error", "자막이 있는 장면이 하나 이상 있어야 해요.");
+    return false;
+  }
+  try {
+    state.dirty = true;
+    await saveNow();
+    state.job = await api("POST", `/api/jobs/${state.job.id}/confirm`);
+    showConfirm(state.job.is_confirmed);
+    return state.job.is_confirmed;
+  } catch (e) {
+    setError("edit-error", e.message);
+    return false;
+  }
+}
+
+async function startRender() {
+  setError("edit-error", "");
   const btn = $("btn-render");
   btn.disabled = true;
   try {
-    await api("PUT", `/api/jobs/${state.job.id}/script`, { script, options });
+    if (!(await confirmScript())) return;
     routeJob(await api("POST", `/api/jobs/${state.job.id}/render`));
   } catch (e) {
     setError("edit-error", e.message);
   } finally {
     btn.disabled = false;
+  }
+}
+
+// ---------- 바뀐 부분 보여 주기 (낱말 단위) ----------
+function diffWords(a, b) {
+  const x = a.split(/(\s+)/).filter((w) => w !== "");
+  const y = b.split(/(\s+)/).filter((w) => w !== "");
+  const n = x.length, m = y.length;
+  const L = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
+  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--)
+    L[i][j] = x[i] === y[j] ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
+  const out = [];
+  let i = 0, j = 0;
+  while (i < n || j < m) {
+    if (i < n && j < m && x[i] === y[j]) { out.push(["same", x[i]]); i++; j++; }
+    else if (j < m && (i >= n || L[i][j + 1] >= L[i + 1][j])) { out.push(["add", y[j]]); j++; }
+    else { out.push(["del", x[i]]); i++; }
+  }
+  // 같은 종류가 이어지면 한 덩어리로 (낱말마다 따로 칠하지 않게)
+  return out.reduce((acc, [k, w]) => {
+    const last = acc[acc.length - 1];
+    if (last && last[0] === k) last[1] += w; else acc.push([k, w]);
+    return acc;
+  }, []);
+}
+
+function diffView(before, after) {
+  const box = el("div", "diff");
+  const old = el("div", "diff-before");
+  const neu = el("div", "diff-after");
+  old.appendChild(el("b", "", "지금: "));
+  neu.appendChild(el("b", "", "고친 글: "));
+  diffWords(before, after).forEach(([k, w]) => {
+    if (k !== "add") old.appendChild(k === "del" ? el("del", "", w) : document.createTextNode(w));
+    if (k !== "del") neu.appendChild(k === "add" ? el("ins", "", w) : document.createTextNode(w));
+  });
+  box.append(old, neu);
+  return box;
+}
+
+// 서버에는 글이 있는 장면만 저장된다. 화면의 장면 번호 → 서버 장면 번호
+function serverIndexMap() {
+  const m = [];
+  state.script.scenes.forEach((s, i) => { if (s.text.trim()) m.push(i); });
+  return m;
+}
+
+// ---------- AI로 고치기 (장면 하나 또는 전체) ----------
+function openAiDialog(indexes) {
+  state.ai = { indexes, preset: null, items: [] };
+  const one = indexes.length === 1;
+  $("ai-title").textContent = one ? `장면 ${indexes[0] + 1} AI로 고치기` : "AI로 전체 고치기";
+  $("ai-target").textContent = one
+    ? `"${state.script.scenes[indexes[0]].text.slice(0, 60)}"`
+    : `장면 ${indexes.length}개를 모두 고쳐요. 말투나 길이를 한꺼번에 바꿀 때 좋아요.`;
+  const box = $("ai-presets");
+  box.innerHTML = "";
+  AI_PRESETS.forEach(([key, label]) => {
+    const b = el("button", "chip", label);
+    b.type = "button";
+    b.onclick = () => {
+      state.ai.preset = state.ai.preset === key ? null : key;
+      box.querySelectorAll(".chip").forEach((c) => c.classList.toggle("on", c === b && state.ai.preset === key));
+    };
+    box.appendChild(b);
+  });
+  $("ai-command").value = "";
+  $("ai-ask").classList.remove("hidden");
+  $("ai-results").innerHTML = "";
+  $("btn-ai-apply").classList.add("hidden");
+  $("ai-wait").classList.add("hidden");
+  setError("ai-error", "");
+  $("ai-dialog").showModal();
+}
+
+async function runAi() {
+  const a = state.ai;
+  const command = $("ai-command").value.trim();
+  if (!a.preset && !command) return setError("ai-error", "버튼을 하나 고르거나, 어떻게 고칠지 직접 적어 주세요.");
+  setError("ai-error", "");
+  $("btn-ai-run").disabled = true;
+  $("ai-wait").classList.remove("hidden");
+  try {
+    const map = serverIndexMap();
+    const indexes = a.indexes.map((i) => map.indexOf(i)).filter((k) => k >= 0);
+    if (!indexes.length) throw new Error("글이 있는 장면만 고칠 수 있어요.");
+    await saveNow();
+    const r = await api("POST", `/api/jobs/${state.job.id}/ai-rewrite`, { indexes, preset: a.preset, command });
+    showSuggestions(r.suggestions.map((s) => ({ index: map[s.index], before: s.before, after: s.after, text: s.after })),
+                    "AI가 고칠 곳을 찾지 못했어요. 다른 명령으로 다시 해 보세요.");
+  } catch (e) {
+    setError("ai-error", e.message);
+  } finally {
+    $("btn-ai-run").disabled = false;
+    $("ai-wait").classList.add("hidden");
+  }
+}
+
+function showSuggestions(items, emptyText) {
+  state.ai.items = items;
+  const list = $("ai-results");
+  list.innerHTML = "";
+  if (!items.length) {
+    list.appendChild(el("li", "muted", emptyText));
+    $("btn-ai-apply").classList.add("hidden");
+    return;
+  }
+  items.forEach((s, k) => {
+    const li = el("li", "suggestion");
+    const head = el("label", "suggestion-head");
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = true;
+    cb.dataset.k = k;
+    const sizes = s.reason ? "" : ` · ${s.before.length}자 → ${s.after.length}자`;
+    head.append(cb, el("span", "", ` 장면 ${s.index + 1}` + (s.reason ? ` · ${s.reason}` : "") + sizes));
+    li.append(head, diffView(s.before, s.after));
+    list.appendChild(li);
+  });
+  $("btn-ai-apply").classList.remove("hidden");
+  $("btn-ai-apply").textContent = items.length === 1 ? "바꾸기" : "고른 것 바꾸기";
+}
+
+async function applySuggestions() {
+  const chosen = [...$("ai-results").querySelectorAll("input[type=checkbox]")]
+    .filter((c) => c.checked).map((c) => state.ai.items[Number(c.dataset.k)]);
+  if (!chosen.length) return setError("ai-error", "바꿀 것을 하나 이상 골라 주세요.");
+  const review = state.ai.mode === "review";
+  const scenes = state.script.scenes;
+  chosen.forEach((s) => {
+    const sc = scenes[s.index];
+    if (!sc) return;
+    // 맞춤법 제안은 같은 장면에 여러 개일 수 있어 글 전체가 아니라 그 부분만 바꾼다
+    sc.text = review ? sc.text.replace(s.before, s.after) : s.text;
+  });
+  $("ai-dialog").close();
+  state.opening = true;
+  renderScenes();
+  state.opening = false;
+  state.dirty = true;
+  try {
+    await saveNow(review ? "맞춤법 고치기 전" : "AI로 고치기 전");
+    toast(`${chosen.length}곳을 바꿨어요. 예전 글은 '버전 기록'에 남아 있어요.`);
+  } catch (e) {
+    setError("edit-error", e.message);
+  }
+}
+
+async function runReview() {
+  state.ai = { indexes: [], preset: null, items: [], mode: "review" };
+  $("ai-title").textContent = "맞춤법·문맥 검사";
+  $("ai-ask").classList.add("hidden");
+  $("ai-results").innerHTML = "";
+  $("btn-ai-apply").classList.add("hidden");
+  setError("ai-error", "");
+  $("ai-wait").textContent = "AI가 대본을 읽고 있어요… (보통 5~20초)";
+  $("ai-wait").classList.remove("hidden");
+  $("ai-dialog").showModal();
+  try {
+    const map = serverIndexMap();
+    await saveNow();
+    const r = await api("POST", `/api/jobs/${state.job.id}/ai-review`);
+    showSuggestions(r.fixes.map((f) => Object.assign({}, f, { index: map[f.index] })), "고칠 곳을 찾지 못했어요. 잘 쓰인 대본이에요!");
+  } catch (e) {
+    setError("ai-error", e.message);
+  } finally {
+    $("ai-wait").classList.add("hidden");
+    $("ai-wait").textContent = "AI가 고치는 중이에요… (보통 5~20초)";
+  }
+}
+
+// ---------- 전체 대본 보기 ----------
+function openOverview() {
+  const list = $("overview-list");
+  list.innerHTML = "";
+  let chars = 0;
+  state.script.scenes.forEach((s, i) => {
+    chars += s.text.trim().length;
+    const li = el("li");
+    const b = el("button", "overview-item");
+    b.type = "button";
+    if (SECTION_LABEL[s.section]) b.appendChild(el("span", "section-tag", SECTION_LABEL[s.section]));
+    b.appendChild(document.createTextNode(" " + (s.text || "(빈 장면)")));
+    b.onclick = () => { $("overview-dialog").close(); selectScene(i); focusScene(i); };
+    li.appendChild(b);
+    list.appendChild(li);
+  });
+  $("overview-summary").textContent = `장면 ${state.script.scenes.length}개 · ${chars}자 · ` +
+    $("scene-summary").textContent.replace(/^장면 \d+개 · /, "").replace(/ \(.*\)$/, "") +
+    " · 문장을 누르면 그 장면으로 가요.";
+  $("overview-dialog").showModal();
+}
+
+// ---------- 버전 기록 ----------
+async function openVersions() {
+  setError("versions-error", "");
+  $("versions-dialog").showModal();
+  await loadVersions();
+}
+
+async function loadVersions() {
+  const list = $("versions-list");
+  list.innerHTML = "";
+  try {
+    await saveNow();
+    const r = await api("GET", `/api/jobs/${state.job.id}/versions`);
+    if (!r.versions.length) list.appendChild(el("li", "muted", "아직 남은 버전이 없어요."));
+    r.versions.forEach((v) => {
+      const li = el("li", "version");
+      const when = new Date(v.time * 1000).toLocaleString("ko-KR", { month: "numeric", day: "numeric",
+                                                                       hour: "2-digit", minute: "2-digit" });
+      li.appendChild(el("div", "", `${v.label} · ${when}`));
+      li.appendChild(el("div", "muted", `장면 ${v.scenes}개 · ${v.chars}자 · "${v.first}"`));
+      const b = el("button", "ghost", "이 버전으로 되돌리기");
+      b.type = "button";
+      b.onclick = () => restoreVersion(v.n);
+      li.appendChild(b);
+      list.appendChild(li);
+    });
+  } catch (e) {
+    setError("versions-error", e.message);
+  }
+}
+
+async function saveVersion() {
+  try {
+    await saveNow();
+    await api("POST", `/api/jobs/${state.job.id}/versions`, { label: "직접 남긴 버전" });
+    toast("지금 대본을 버전으로 남겼어요.");
+    await loadVersions();
+  } catch (e) {
+    setError("versions-error", e.message);
+  }
+}
+
+async function restoreVersion(n) {
+  if (!confirm("이 버전으로 되돌릴까요? 지금 대본은 '되돌리기 전' 버전으로 남아요.")) return;
+  try {
+    await saveNow();
+    const job = await api("POST", `/api/jobs/${state.job.id}/versions/${n}/restore`);
+    $("versions-dialog").close();
+    state.job = job;
+    openEdit(job);
+    toast("예전 버전으로 되돌렸어요.");
+  } catch (e) {
+    setError("versions-error", e.message);
   }
 }
 
@@ -1169,6 +1505,27 @@ $("btn-rewrite").onclick = () => {
   openSource(state.job);
 };
 $("btn-render").onclick = startRender;
+$("btn-confirm").onclick = confirmScript;
+$("btn-overview").onclick = openOverview;
+$("btn-overview-close").onclick = () => $("overview-dialog").close();
+$("btn-ai-all").onclick = () => openAiDialog(state.script.scenes.map((_, i) => i));
+$("btn-ai-run").onclick = runAi;
+$("btn-ai-apply").onclick = applySuggestions;
+$("btn-ai-close").onclick = () => $("ai-dialog").close();
+$("ai-command").addEventListener("keydown", (e) => { if (e.key === "Enter") runAi(); });
+$("btn-review").onclick = runReview;
+$("btn-versions").onclick = openVersions;
+$("btn-versions-close").onclick = () => $("versions-dialog").close();
+$("btn-version-save").onclick = saveVersion;
+// 편집 화면에서 무엇이든 바꾸면 잠시 뒤 저절로 저장
+["input", "change"].forEach((ev) => $("view-edit").addEventListener(ev, (e) => {
+  if (e.target.closest && e.target.closest("#yt-url, #bgm-upload")) return;
+  markDirty();
+}));
+$("view-edit").addEventListener("click", (e) => {
+  if (e.target.closest && e.target.closest(".seg button")) markDirty();
+});
+window.addEventListener("beforeunload", () => { if (state.dirty) saveNow().catch(() => {}); });
 $("btn-add-scene").onclick = () => addScene("", null, state.script.scenes.length);   // 맨 아래에
 $("yt-title").addEventListener("input", updateTitleCount);
 $("btn-reedit").onclick = () => openEdit(state.job);

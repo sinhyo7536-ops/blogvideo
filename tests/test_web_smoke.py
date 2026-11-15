@@ -705,6 +705,8 @@ def test_direction_requests_are_sent_and_result_shown(tmp_path, monkeypatch, bro
         assert page.is_visible("#direction") and page.locator(".scene-card textarea.direction").count() == 1
         assert not page.is_visible(".scene-card .applied")
         page.fill("#direction", "전체적으로 잔잔하게")
+        assert not page.is_visible(".scene-card textarea.direction")      # 장면 연출 요청은 접혀 있음
+        page.click(".scene-card .direction-more summary >> nth=0")
         page.fill(".scene-card textarea.direction >> nth=0", "따뜻하게, 자막 크게, 오래 보여 줘. 더 짧게 써 줘")
         assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
         page.click("button:has-text('영상 만들기')")
@@ -732,10 +734,133 @@ def test_direction_requests_are_sent_and_result_shown(tmp_path, monkeypatch, bro
 def test_duplicate_keeps_direction_and_new_scene_has_empty_one(live_server, browser):
     page = browser.new_page(viewport={"width": 1280, "height": 800})
     _to_edit(page, live_server)
+    page.click(".scene-card .direction-more summary >> nth=0")
     page.fill(".scene-card textarea.direction >> nth=0", "흑백으로")
     page.click(".scene-card >> nth=0 >> text=복제")
     page.click("#btn-add-scene")
     assert page.evaluate("state.script.scenes.map(s => s.direction || '')") == ["흑백으로", "흑백으로", ""]
+
+
+# ---------- 5단계: 대본 편집기 ----------
+TEXT = ".scene-card textarea:not(.direction)"
+
+
+def _editor_server(tmp_path, monkeypatch, calls):
+    from app.models import Scene, VideoScript
+
+    m = _start(tmp_path, monkeypatch)
+    m.steps.generate_script = lambda post, key: VideoScript(
+        scenes=[Scene(text="첫 장면이에요.", image_index=0), Scene(text="둘째 장면 이에요.", image_index=0),
+                Scene(text="셋째 장면이에요.", image_index=0)], yt_title="t", yt_description="d", yt_tags=[])
+
+    def rewrite(script, indexes, command, key, post, analysis):
+        calls.append((indexes, command))
+        return [{"index": i, "before": script.scenes[i].text, "after": "AI가 고친 " + script.scenes[i].text}
+                for i in indexes]
+
+    def review(script, key):
+        return [{"index": 1, "before": "장면 이에요", "after": "장면이에요", "reason": "띄어쓰기",
+                 "text": "둘째 장면이에요."}]
+
+    m.steps.rewrite, m.steps.review = rewrite, review
+    return m
+
+
+def test_ai_rewrite_one_scene_shows_diff_and_applies(tmp_path, monkeypatch, browser):
+    calls = []
+    m = _editor_server(tmp_path, monkeypatch, calls)
+    for base in _serve(m):
+        page = browser.new_page(viewport={"width": 390, "height": 844})
+        _to_edit(page, base)
+        page.click(".scene-card >> nth=1 >> button.ai-fix")
+        page.click("#ai-presets .chip:has-text('30% 줄이기')")
+        page.fill("#ai-command", "더 밝게")
+        page.click("#btn-ai-run")
+        page.wait_for_selector("#ai-results .suggestion")
+        assert calls[0][0] == [1] and "30%" in calls[0][1] and "더 밝게" in calls[0][1]
+        assert page.inner_text("#ai-results ins").strip() == "AI가 고친"
+        page.click("#btn-ai-close")                                          # 닫으면 그대로
+        assert page.input_value(f"{TEXT} >> nth=1") == "둘째 장면 이에요."
+        page.click(".scene-card >> nth=1 >> button.ai-fix")
+        page.click("#ai-presets .chip >> nth=0")
+        page.click("#btn-ai-run")
+        page.click("#btn-ai-apply")
+        assert page.input_value(f"{TEXT} >> nth=1") == "AI가 고친 둘째 장면 이에요."
+        assert page.input_value(f"{TEXT} >> nth=0") == "첫 장면이에요."      # 다른 장면은 그대로
+        page.wait_for_function("document.getElementById('save-status').textContent.includes('저장됨')")
+        job_id = page.evaluate("state.job.id")
+        assert m.get(job_id).script.scenes[1].text == "AI가 고친 둘째 장면 이에요."
+        assert [v["label"] for v in m.versions(job_id)][0] == "AI로 고치기 전"
+        page.close()
+
+
+def test_review_fixes_only_the_wrong_part(tmp_path, monkeypatch, browser):
+    m = _editor_server(tmp_path, monkeypatch, [])
+    for base in _serve(m):
+        page = browser.new_page(viewport={"width": 1280, "height": 800})
+        _to_edit(page, base)
+        page.fill(f"{TEXT} >> nth=1", "둘째 장면 이에요. 내가 더 씀")             # 검사 전에 고친 글도 유지
+        page.click("#btn-review")
+        page.wait_for_selector("#ai-results .suggestion")
+        assert "띄어쓰기" in page.inner_text("#ai-results")
+        page.click("#btn-ai-apply")
+        assert page.input_value(f"{TEXT} >> nth=1") == "둘째 장면이에요. 내가 더 씀"
+        page.close()
+
+
+def test_autosave_versions_and_restore(tmp_path, monkeypatch, browser):
+    m = _editor_server(tmp_path, monkeypatch, [])
+    for base in _serve(m):
+        page = browser.new_page(viewport={"width": 1280, "height": 800})
+        _to_edit(page, base)
+        job_id = page.evaluate("state.job.id")
+        page.fill(f"{TEXT} >> nth=0", "손으로 고친 첫 장면")
+        page.wait_for_function("document.getElementById('save-status').textContent.includes('저장됨')")
+        assert m.get(job_id).script.scenes[0].text == "손으로 고친 첫 장면"   # 버튼을 안 눌러도 저장
+        page.reload()                                                       # 껐다 켜도 남아 있음
+        page.wait_for_selector(".scene-card")
+        assert page.input_value(f"{TEXT} >> nth=0") == "손으로 고친 첫 장면"
+        page.click("#btn-versions")
+        page.wait_for_selector("#versions-list .version")
+        assert "AI가 쓴 대본" in page.inner_text("#versions-list")
+        page.once("dialog", lambda d: d.accept())
+        page.click("#versions-list .version >> nth=-1 >> button")           # 가장 오래된 = AI가 쓴 대본
+        page.wait_for_function("document.querySelector('.scene-card textarea').value === '첫 장면이에요.'")
+        assert m.get(job_id).script.scenes[0].text == "첫 장면이에요."
+        assert m.versions(job_id)[0]["label"] == "되돌리기 전"
+        page.close()
+
+
+def test_overview_lists_every_scene(tmp_path, monkeypatch, browser):
+    m = _editor_server(tmp_path, monkeypatch, [])
+    for base in _serve(m):
+        page = browser.new_page(viewport={"width": 390, "height": 844})
+        _to_edit(page, base)
+        page.click("#btn-overview")
+        assert page.locator("#overview-list li").count() == 3
+        assert "셋째 장면이에요." in page.inner_text("#overview-list")
+        page.click("#overview-list li >> nth=2 >> button")
+        assert not page.is_visible("#overview-dialog")
+        page.close()
+
+
+def test_confirm_flow_before_render(tmp_path, monkeypatch, browser):
+    m = _editor_server(tmp_path, monkeypatch, [])
+    for base in _serve(m):
+        page = browser.new_page(viewport={"width": 1280, "height": 800})
+        _to_edit(page, base)
+        assert page.inner_text("#btn-render") == "대본 확정하고 영상 만들기"
+        page.click("#btn-confirm")
+        page.wait_for_selector("#confirm-box.done")
+        assert page.inner_text("#btn-render") == "영상 만들기"
+        page.fill(f"{TEXT} >> nth=0", "확정 뒤에 고침")                       # 고치면 다시 확정해야 함
+        assert not page.is_visible("#confirm-box.done")
+        assert page.inner_text("#btn-render") == "대본 확정하고 영상 만들기"
+        page.click("#btn-render")
+        page.wait_for_selector("#view-result:not(.hidden)", timeout=10000)
+        job_id = page.evaluate("state.job.id")
+        assert m.get(job_id).script.scenes[0].text == "확정 뒤에 고침" and m.is_confirmed(job_id)
+        page.close()
 
 
 # ---------- 2단계: AI 모델 설정 화면 ----------

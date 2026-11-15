@@ -3,7 +3,7 @@ from fastapi.testclient import TestClient
 
 from app.jobs import JobManager
 from app.main import create_app
-from tests.fakes import fake_steps, wait_stage
+from tests.fakes import render_job, fake_steps, wait_stage
 
 
 @pytest.fixture
@@ -70,7 +70,7 @@ def _done_job(c, m):
     s = wait_stage(m, j["id"], "ready")
     r = c.put(f"/api/jobs/{j['id']}/script", json={"script": s.script.model_dump(), "options": {"aspect": "16:9"}})
     assert r.status_code == 200 and r.json()["options"]["aspect"] == "16:9"
-    assert c.post(f"/api/jobs/{j['id']}/render").status_code == 200
+    assert render_job(c, j['id']).status_code == 200
     wait_stage(m, j["id"], "done")
     return j["id"]
 

@@ -186,6 +186,7 @@ class JobState(BaseModel):
     script: VideoScript | None = None
     analysis: dict | None = None        # AI 여행 분석 (app.ai.analyze.TravelAnalysis)
     settings: ScriptSettings = Field(default_factory=ScriptSettings)
+    confirmed: str = ""                 # 사용자가 '대본 확정'을 누른 대본의 지문 (고치면 달라져 다시 확정해야 함)
     options: RenderOptions = Field(default_factory=RenderOptions)
     video_path: str | None = None
     failed_phase: Literal["prepare", "script", "render"] | None = None

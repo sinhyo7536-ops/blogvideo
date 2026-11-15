@@ -15,7 +15,7 @@ from app.models import BlogPost, ImageRef, RenderOptions
 from app.procutil import quiet_kwargs
 from app.render import resolve_bgm
 from app.script import generate_script
-from tests.fakes import fake_steps, wait_stage
+from tests.fakes import render_job, fake_steps, wait_stage
 from tests.test_script import FakeClient, _req
 
 
@@ -82,7 +82,7 @@ def test_api_hides_local_paths(tmp_path, monkeypatch):
     c = TestClient(create_app(m), client=("127.0.0.1", 1), base_url="http://127.0.0.1:8765")
     j = c.post("/api/jobs", json={"url": "https://blog.naver.com/a/1", "options": {}}).json()
     wait_stage(m, j["id"], "ready")
-    c.post(f"/api/jobs/{j['id']}/render")
+    render_job(c, j['id'])
     wait_stage(m, j["id"], "done")
     body = c.get(f"/api/jobs/{j['id']}").text
     assert str(tmp_path) not in body and "local_path" not in body and "audio_path" not in body

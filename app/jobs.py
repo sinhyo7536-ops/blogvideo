@@ -1,6 +1,8 @@
 """작업(job) 관리: 큐, 상태 저장, 단계 실행."""
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import queue
 import shutil
@@ -22,6 +24,10 @@ BUSY = "지금은 바꿀 수 없어요. 진행 중인 작업이 끝난 뒤 다�
 NO_SCRIPT = "대본이 아직 없어요."
 NO_POST = "먼저 블로그 글을 불러와 주세요."
 STOPPED = "불러오기를 멈췄어요."
+NOT_CONFIRMED = "영상을 만들기 전에 대본을 확인하고 '대본 확정'을 눌러 주세요."
+NO_KEY_AI = "AI 도구를 쓰려면 설정에서 Claude API 키를 넣어 주세요."
+NO_VERSION = "그 버전을 찾을 수 없어요."
+MAX_VERSIONS = 40
 
 
 class Cancelled(Exception):
@@ -46,6 +52,17 @@ class Steps:
     abort: Callable | None = None           # 돌고 있는 외부 작업(FFmpeg)을 바로 끝낸다
     voice_preview: Callable | None = None   # (목소리, 속도, 저장할 파일) → 파일
     fetch_music: Callable | None = None     # (유튜브 주소, 음악 폴더) → 파일 이름
+    rewrite: Callable | None = None         # (대본, 장면 번호들, 명령, 키, 글, 분석) → 제안 목록 (app.ai.rewrite)
+    review: Callable | None = None          # (대본, 키) → 맞춤법·문맥 제안 목록
+
+
+def fingerprint(script: VideoScript | None) -> str:
+    """사용자가 고칠 수 있는 내용의 지문. 목소리 파일·길이처럼 영상을 만들며 채우는 값은 뺀다."""
+    if script is None:
+        return ""
+    d = script.model_dump(exclude={"direction_done": True,
+                                   "scenes": {"__all__": {"duration", "audio_path", "direction_done"}}})
+    return hashlib.sha1(json.dumps(d, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()[:16]
 
 
 def blank_script(post: BlogPost) -> VideoScript:
@@ -134,11 +151,98 @@ class JobManager:
         self._queue.put((s.id, "prepare"))
         return s
 
-    def update_script(self, job_id: str, script: VideoScript, options: RenderOptions) -> JobState:
+    def update_script(self, job_id: str, script: VideoScript, options: RenderOptions,
+                      version_label: str = "") -> JobState:
+        """대본 저장(자동 저장 포함). version_label 이 있으면 바꾸기 전 대본을 버전 기록에 남긴다."""
         s = self.get(job_id)
         if s.stage in _ACTIVE or s.post is None:
             raise UserError(BUSY)
+        if version_label and s.script is not None and fingerprint(s.script) != fingerprint(script):
+            self._snapshot(job_id, s.script, version_label)
         return self._set(job_id, script=script, options=options, stage="ready", message="", progress=1.0)
+
+    # ---------- 대본 확정 ----------
+    def confirm(self, job_id: str) -> JobState:
+        s = self.get(job_id)
+        if s.stage in _ACTIVE:
+            raise UserError(BUSY)
+        if s.script is None or not any(x.text.strip() for x in s.script.scenes):
+            raise UserError(NO_SCRIPT)
+        fp = fingerprint(s.script)
+        if s.confirmed != fp:
+            self._snapshot(job_id, s.script, "대본 확정")
+        return self._set(job_id, confirmed=fp)
+
+    def is_confirmed(self, job_id: str) -> bool:
+        s = self.get(job_id)
+        return bool(s.script) and s.confirmed == fingerprint(s.script)
+
+    # ---------- 버전 기록 ----------
+    def _versions_dir(self, job_id: str) -> Path:
+        return self.dir(job_id) / "versions"
+
+    def _snapshot(self, job_id: str, script: VideoScript, label: str) -> int:
+        d = self._versions_dir(job_id)
+        d.mkdir(parents=True, exist_ok=True)
+        files = sorted(d.glob("*.json"))
+        n = int(files[-1].stem) + 1 if files else 1
+        data = {"n": n, "label": label[:40], "time": time.time(), "script": script.model_dump(mode="json")}
+        (d / f"{n:04d}.json").write_text(json.dumps(data, ensure_ascii=False), "utf-8")
+        for old in files[:max(0, len(files) + 1 - MAX_VERSIONS)]:
+            old.unlink(missing_ok=True)
+        return n
+
+    def save_version(self, job_id: str, label: str = "직접 저장") -> int:
+        s = self.get(job_id)
+        if s.script is None:
+            raise UserError(NO_SCRIPT)
+        return self._snapshot(job_id, s.script, label or "직접 저장")
+
+    def versions(self, job_id: str) -> list[dict]:
+        self.get(job_id)
+        out = []
+        for f in sorted(self._versions_dir(job_id).glob("*.json"), reverse=True):
+            try:
+                d = json.loads(f.read_text("utf-8"))
+                sc = VideoScript.model_validate(d["script"])
+            except (ValueError, KeyError):
+                continue
+            out.append({"n": d["n"], "label": d.get("label", ""), "time": d.get("time", 0),
+                        "scenes": len(sc.scenes), "chars": sum(len(x.text) for x in sc.scenes),
+                        "first": sc.scenes[0].text[:40] if sc.scenes else ""})
+        return out
+
+    def restore_version(self, job_id: str, n: int) -> JobState:
+        s = self.get(job_id)
+        if s.stage in _ACTIVE:
+            raise UserError(BUSY)
+        f = self._versions_dir(job_id) / f"{int(n):04d}.json"
+        if not f.exists():
+            raise UserError(NO_VERSION)
+        script = VideoScript.model_validate(json.loads(f.read_text("utf-8"))["script"])
+        if s.script is not None and fingerprint(s.script) != fingerprint(script):
+            self._snapshot(job_id, s.script, "되돌리기 전")
+        return self._set(job_id, script=script, stage="ready", message="", progress=1.0)
+
+    # ---------- AI 편집 도구 (제안만 돌려준다) ----------
+    def _ai_ready(self, job_id: str) -> tuple[JobState, str]:
+        s = self.get(job_id)
+        if s.stage in _ACTIVE:
+            raise UserError(BUSY)
+        if s.script is None:
+            raise UserError(NO_SCRIPT)
+        key = self.steps.api_key()
+        if not key:
+            raise UserError(NO_KEY_AI)
+        return s, key
+
+    def suggest_rewrite(self, job_id: str, indexes: list[int], command: str) -> list[dict]:
+        s, key = self._ai_ready(job_id)
+        return self.steps.rewrite(s.script, indexes, command, key, s.post, s.analysis)
+
+    def suggest_review(self, job_id: str) -> list[dict]:
+        s, key = self._ai_ready(job_id)
+        return self.steps.review(s.script, key)
 
     def start_render(self, job_id: str) -> JobState:
         s = self.get(job_id)
@@ -299,6 +403,9 @@ class JobManager:
         else:
             script = self.steps.generate_script(post, self.steps.api_key())
         self._check(job_id)   # AI가 쓰는 동안 멈췄으면 결과를 버린다
+        if s.script is not None and s.script.scenes:
+            self._snapshot(job_id, s.script, "다시 쓰기 전")
+        self._snapshot(job_id, script, "AI가 쓴 대본")
         self._set(job_id, script=script, stage="ready", progress=1.0)
 
     def _direct(self, job_id: str) -> JobState:
@@ -312,9 +419,12 @@ class JobManager:
         key = self.steps.api_key()
         if not key:
             raise UserError(NO_AI_KEY)
+        was_confirmed = s.confirmed == fingerprint(s.script)
         script, options = self.steps.direct(s.script, s.options, key)
         self._check(job_id)
-        return self._set(job_id, script=script, options=options)
+        # 확정한 대본에 연출 요청을 반영한 결과는 확정 상태를 이어 간다
+        return self._set(job_id, script=script, options=options,
+                         confirmed=fingerprint(script) if was_confirmed else s.confirmed)
 
     def _render(self, job_id: str) -> None:
         self._direct(job_id)

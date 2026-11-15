@@ -25,7 +25,7 @@ hiddenimports = (
     + collect_submodules("edge_tts")
     + collect_submodules("anthropic")
     + collect_submodules("yt_dlp")
-    + ["app.main", "app.render", "app.tts", "app.script", "app.scraper.naver", "truststore", "app.ai.models", "app.ai.analyze", "app.visuals", "app.ytmusic", "app.director"]
+    + ["app.main", "app.render", "app.tts", "app.script", "app.scraper.naver", "truststore", "app.ai.models", "app.ai.analyze", "app.ai.rewrite", "app.visuals", "app.ytmusic", "app.director"]
 )
 
 a = Analysis(

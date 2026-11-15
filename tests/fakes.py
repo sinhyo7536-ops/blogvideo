@@ -66,3 +66,9 @@ def wait_stage(manager: JobManager, job_id: str, stage: str, timeout=5.0):
             return s
         time.sleep(0.02)
     raise AssertionError(f"stage {manager.get(job_id).stage} != {stage}")
+
+
+def render_job(c, job_id):
+    """화면과 같은 순서: 대본 확정 → 영상 만들기."""
+    c.post(f"/api/jobs/{job_id}/confirm")
+    return c.post(f"/api/jobs/{job_id}/render")

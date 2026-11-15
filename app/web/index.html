@@ -187,10 +187,19 @@
       <h2>연출 요청</h2>
       <label class="field"><span>영상 전체 연출 요청 <small class="muted">비워 두어도 돼요</small></span>
         <textarea id="direction" rows="2" maxlength="600" placeholder="예: 전체적으로 잔잔하고 감성적으로, 장면을 천천히 넘겨 줘. 배경음악은 작게."></textarea></label>
-      <p class="muted">장면마다 있는 "연출 요청" 칸에 원하는 것을 말로 적어 두면, <b>영상 만들기</b>를 누를 때 AI가 읽고 사진 움직임·전환·색감·자막 크기와 위치·머무는 시간을 맞춰 줘요. "더 짧게 써 줘"처럼 적으면 그 장면의 자막 글도 고쳐 줘요.</p>
+      <p class="muted">장면마다 "연출 요청 더 보기"를 열고 원하는 것을 말로 적어 두면, <b>영상 만들기</b>를 누를 때 AI가 읽고 사진 움직임·전환·색감·자막 크기와 위치·머무는 시간을 맞춰 줘요. "더 짧게 써 줘"처럼 적으면 그 장면의 자막 글도 고쳐 줘요.</p>
 
       <h2>장면</h2>
       <p class="muted" id="scene-summary"></p>
+      <div class="editor-tools" id="editor-tools">
+        <button type="button" class="ghost" id="btn-overview">전체 대본 보기</button>
+        <button type="button" class="ghost" id="btn-ai-all">AI로 전체 고치기</button>
+        <button type="button" class="ghost" id="btn-review">맞춤법·문맥 검사</button>
+        <button type="button" class="ghost" id="btn-versions">버전 기록</button>
+        <span class="save-status muted" id="save-status" aria-live="polite"></span>
+      </div>
+      <p class="muted">장면마다 있는 <b>AI로 고치기</b>를 누르면 그 장면 글만 "자연스럽게", "30% 줄이기"처럼 고칠 수 있어요.
+        고친 글은 바뀐 부분을 보여 주고, <b>바꾸기</b>를 눌러야 적용돼요. 고친 대본은 저절로 저장돼요.</p>
       <details class="source-panel" id="source-panel">
         <summary>블로그 글·사진에서 가져오기</summary>
         <p class="muted" id="panel-hint">글 한 토막이나 사진을 누르면 그 내용으로 새 장면이 생겨요.</p>
@@ -212,6 +221,10 @@
       <label class="field"><span>태그 (쉼표로 구분)</span>
         <input id="yt-tags"></label>
       <p class="error-text hidden" id="edit-error" role="alert"></p>
+      <div class="confirm-box" id="confirm-box">
+        <p id="confirm-status"></p>
+        <button type="button" class="ghost" id="btn-confirm">대본 확정</button>
+      </div>
       <div class="sticky-actions">
         <button type="button" class="primary big" id="btn-render">영상 만들기</button>
       </div>
@@ -312,6 +325,40 @@
     </section>
 
   </main>
+
+  <dialog id="ai-dialog" class="tool-dialog">
+    <h2 id="ai-title">AI로 고치기</h2>
+    <div id="ai-ask">
+      <p class="muted" id="ai-target"></p>
+      <div class="presets" id="ai-presets"></div>
+      <label class="field"><span>직접 쓰기 <small class="muted">예: 회 이야기를 앞으로, 더 짧고 힘 있게</small></span>
+        <input id="ai-command" maxlength="200"></label>
+      <button type="button" class="primary" id="btn-ai-run">고치기</button>
+    </div>
+    <p class="muted hidden" id="ai-wait">AI가 고치는 중이에요… (보통 5~20초)</p>
+    <p class="error-text hidden" id="ai-error" role="alert"></p>
+    <ol class="suggestions" id="ai-results"></ol>
+    <div class="row">
+      <button type="button" class="primary hidden" id="btn-ai-apply">고른 것 바꾸기</button>
+      <button type="button" class="ghost" id="btn-ai-close">닫기</button>
+    </div>
+  </dialog>
+
+  <dialog id="overview-dialog" class="tool-dialog">
+    <h2>전체 대본</h2>
+    <p class="muted" id="overview-summary"></p>
+    <ol class="overview" id="overview-list"></ol>
+    <button type="button" class="ghost" id="btn-overview-close">닫기</button>
+  </dialog>
+
+  <dialog id="versions-dialog" class="tool-dialog">
+    <h2>버전 기록</h2>
+    <p class="muted">AI가 대본을 쓰거나 고치기 전, 대본을 확정할 때 저절로 남아요. 예전 버전으로 언제든 되돌릴 수 있어요.</p>
+    <button type="button" class="ghost" id="btn-version-save">지금 대본을 버전으로 남기기</button>
+    <p class="error-text hidden" id="versions-error" role="alert"></p>
+    <ol class="versions" id="versions-list"></ol>
+    <button type="button" class="ghost" id="btn-versions-close">닫기</button>
+  </dialog>
 
   <dialog id="picker">
     <h2>사진 고르기</h2>

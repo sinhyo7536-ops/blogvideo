@@ -12,7 +12,7 @@ from app.models import VOICE_KEYS, RenderOptions
 from app.script import SYSTEM
 from app.tts import SPEEDS, VOICE_LIST, synthesize_all
 from tests.conftest import make_silence
-from tests.fakes import fake_steps, wait_stage
+from tests.fakes import render_job, fake_steps, wait_stage
 
 
 @pytest.fixture
@@ -74,7 +74,7 @@ def test_job_passes_voice_and_speed_to_tts(api):
     opts = {**job["options"], "voice": "hyunsu", "speed": "slow"}
     r = c.put(f"/api/jobs/{job['id']}/script", json={"script": s.script.model_dump(), "options": opts})
     assert r.status_code == 200
-    c.post(f"/api/jobs/{job['id']}/render")
+    render_job(c, job['id'])
     wait_stage(manager, job["id"], "done")
     assert seen == {"voice": "hyunsu", "speed": "slow"}
 

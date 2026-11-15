@@ -12,11 +12,11 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app import config
 from app.errors import UserError
-from app.jobs import JobManager, Steps
+from app.jobs import NOT_CONFIRMED, JobManager, Steps, fingerprint
 from app.models import JobState, RenderOptions, ScriptSettings, VideoScript
 from app.paths import jobs_dir, music_dirs, resource_path, user_music_dir
 from app.scraper.naver import validate_url
@@ -24,6 +24,7 @@ from app.scraper.naver import validate_url
 PORT = 8765
 NO_KEY = "Claude API 키가 없어요. 설정에서 키를 넣어 주세요. (키 없이 쓰려면 \"AI 없이 직접 작성하기\")"
 PC_ONLY = "설정은 PC에서만 바꿀 수 있어요."
+NO_COMMAND = "어떻게 고칠지 버튼을 고르거나 직접 적어 주세요."
 LOCAL_ONLY = "이 프로그램은 설치된 PC에서만 쓸 수 있어요."
 _LOCAL_HOSTS = {"127.0.0.1", "localhost", "[::1]"}
 UNKNOWN = "알 수 없는 오류가 났어요. 다시 시도해 주세요."
@@ -71,6 +72,7 @@ def default_steps() -> Steps:
     from app.scraper.naver import download_images, fetch_post
     from app.script import generate_script
     from app.ai.analyze import analyze
+    from app.ai.rewrite import review, rewrite
     from app.director import direct
     from app.tts import preview, synthesize_all
     from app.ytmusic import fetch_audio
@@ -78,7 +80,7 @@ def default_steps() -> Steps:
     return Steps(fetch_post=fetch_post, download_images=download_images, generate_script=generate_script,
                  synthesize_all=synthesize_all, render_video=render_video,
                  api_key=lambda: config.load_config().get("anthropic_api_key", ""),
-                 voice_preview=preview, fetch_music=fetch_audio, abort=stop_current, direct=direct, analyze=analyze,
+                 voice_preview=preview, fetch_music=fetch_audio, rewrite=rewrite, review=review, abort=stop_current, direct=direct, analyze=analyze,
                  write_script=lambda post, key, analysis, settings, voice: generate_script(
                      post, key, analysis=analysis, settings=settings, voice=voice),
                  channel_name=lambda: config.load_config().get("channel_name", ""))
@@ -109,6 +111,17 @@ class YoutubeMusic(BaseModel):
 class UpdateScript(BaseModel):
     script: VideoScript
     options: RenderOptions
+    version_label: str = Field(default="", max_length=40)   # 있으면 바꾸기 전 대본을 버전으로 남김
+
+
+class RewriteRequest(BaseModel):
+    indexes: list[int] = Field(min_length=1, max_length=300)
+    preset: str | None = None
+    command: str = Field(default="", max_length=200)
+
+
+class VersionLabel(BaseModel):
+    label: str = Field(default="직접 저장", max_length=40)
 
 
 class Settings(BaseModel):
@@ -126,6 +139,7 @@ def _public(s: JobState) -> dict:
     """같은 와이파이의 기기에 보내는 상태. PC의 파일 경로(사용자 이름 포함)는 빼고 보낸다."""
     d = s.model_dump(exclude={"video_path"})
     d["has_video"] = bool(s.video_path)
+    d["is_confirmed"] = bool(s.script) and s.confirmed == fingerprint(s.script)
     d["has_thumbnail"] = bool(_thumbnail_path(s))
     if d.get("post"):
         d["post"]["images"] = [{"url": i["url"]} for i in d["post"]["images"]]
@@ -240,11 +254,46 @@ def create_app(manager: JobManager | None = None) -> FastAPI:
 
     @app.put("/api/jobs/{job_id}/script")
     def update_script(job_id: str, body: UpdateScript):
-        return _public(manager.update_script(job_id, body.script, body.options))
+        return _public(manager.update_script(job_id, body.script, body.options, body.version_label))
+
+    @app.post("/api/jobs/{job_id}/confirm")
+    def confirm(job_id: str):
+        """대본 확정: 사용자가 확인한 대본만 영상으로 만든다."""
+        return _public(manager.confirm(job_id))
 
     @app.post("/api/jobs/{job_id}/render")
     def render(job_id: str):
+        s = manager.get(job_id)
+        if s.script is not None and not manager.is_confirmed(job_id):
+            raise UserError(NOT_CONFIRMED)
         return _public(manager.start_render(job_id))
+
+    @app.post("/api/jobs/{job_id}/ai-rewrite")
+    def ai_rewrite(job_id: str, body: RewriteRequest):
+        """고른 장면만 AI가 다시 쓴 제안 (적용은 화면에서)."""
+        from app.ai.rewrite import command_text
+
+        command = command_text(body.preset, body.command)
+        if not command:
+            raise UserError(NO_COMMAND)
+        return {"suggestions": manager.suggest_rewrite(job_id, body.indexes, command)}
+
+    @app.post("/api/jobs/{job_id}/ai-review")
+    def ai_review(job_id: str):
+        """맞춤법·문맥 검토 제안."""
+        return {"fixes": manager.suggest_review(job_id)}
+
+    @app.get("/api/jobs/{job_id}/versions")
+    def versions(job_id: str):
+        return {"versions": manager.versions(job_id)}
+
+    @app.post("/api/jobs/{job_id}/versions")
+    def save_version(job_id: str, body: VersionLabel):
+        return {"n": manager.save_version(job_id, body.label)}
+
+    @app.post("/api/jobs/{job_id}/versions/{n}/restore")
+    def restore_version(job_id: str, n: int):
+        return _public(manager.restore_version(job_id, n))
 
     @app.post("/api/jobs/{job_id}/cancel")
     def cancel(job_id: str):

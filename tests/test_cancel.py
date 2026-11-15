@@ -11,7 +11,7 @@ from app.jobs import JobManager
 from app.main import create_app
 from app.models import BlogPost, ImageRef, RenderOptions, Scene, VideoScript
 from tests.conftest import make_silence
-from tests.fakes import fake_steps, wait_stage
+from tests.fakes import render_job, fake_steps, wait_stage
 
 URL = "https://blog.naver.com/a/1"
 
@@ -45,14 +45,14 @@ def test_stop_while_rendering_returns_to_editing(api):
 
     manager.steps.render_video = slow_render
     job_id = _ready(c, manager)
-    c.post(f"/api/jobs/{job_id}/render")
+    render_job(c, job_id)
     wait_stage(manager, job_id, "rendering")
     assert c.post(f"/api/jobs/{job_id}/cancel").status_code == 200
     s = wait_stage(manager, job_id, "ready")
     assert aborted and s.script.scenes and s.failed_phase is None and s.message == "" and not s.video_path
     assert not manager.is_busy()
     manager.steps.render_video = fake_steps().render_video      # 다시 만들면 정상적으로 끝남
-    c.post(f"/api/jobs/{job_id}/render")
+    render_job(c, job_id)
     wait_stage(manager, job_id, "done")
 
 
@@ -69,7 +69,7 @@ def test_stop_while_making_voices(api):
 
     manager.steps.synthesize_all = slow_tts
     job_id = _ready(c, manager)
-    c.post(f"/api/jobs/{job_id}/render")
+    render_job(c, job_id)
     started.wait(5)
     c.post(f"/api/jobs/{job_id}/cancel")
     assert wait_stage(manager, job_id, "ready").script.scenes
@@ -111,7 +111,7 @@ def test_cancel_when_nothing_is_running_changes_nothing(api):
     c, manager = api
     job_id = _ready(c, manager)
     assert c.post(f"/api/jobs/{job_id}/cancel").json()["stage"] == "ready"
-    c.post(f"/api/jobs/{job_id}/render")
+    render_job(c, job_id)
     wait_stage(manager, job_id, "done")
     assert c.post(f"/api/jobs/{job_id}/cancel").json()["stage"] == "done"
     assert c.post("/api/jobs/nope/cancel").status_code == 404

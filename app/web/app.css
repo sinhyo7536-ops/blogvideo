@@ -251,3 +251,31 @@ button.photo:hover, button.photo:focus-visible { border-color: var(--primary); }
 .evidence.photo { background: #e8f0fe; color: #1f5fbf; }
 .evidence.guess { background: #fff4e5; color: #a35a00; }
 .section-tag { margin-left: .5rem; padding: 0 .45rem; border-radius: 9px; background: #eef1f6; font-size: .75rem; font-weight: 600; }
+
+/* 대본 편집기: AI 고치기, 전체 보기, 버전, 확정 */
+.editor-tools { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; margin: .4rem 0; }
+.save-status { font-size: .85rem; margin-left: auto; }
+.scene-actions .ai-fix { background: #eef4ff; border-color: #b9cdf5; color: #1f4fa8; font-weight: 600; }
+.direction-more { margin: .3rem 0; }
+.direction-more summary { cursor: pointer; color: #555; font-size: .9rem; min-height: 28px; }
+.tool-dialog { width: min(720px, 94vw); max-height: 88vh; border: none; border-radius: 14px; padding: 1rem 1.2rem; }
+.tool-dialog::backdrop { background: rgba(0, 0, 0, .45); }
+.presets { display: flex; flex-wrap: wrap; gap: .35rem; margin: .5rem 0; }
+.chip { border: 1px solid var(--line); background: #fff; border-radius: 16px; padding: .3rem .75rem; min-height: 34px; cursor: pointer; }
+.chip.on { background: #1f5fbf; color: #fff; border-color: #1f5fbf; }
+.suggestions, .versions, .overview { padding-left: 0; list-style: none; display: grid; gap: .6rem; margin: .8rem 0; }
+.suggestion { border: 1px solid var(--line); border-radius: 10px; padding: .5rem .7rem; }
+.suggestion-head { font-weight: 600; display: flex; align-items: center; gap: .3rem; }
+.diff { display: grid; gap: .25rem; margin-top: .3rem; line-height: 1.6; }
+.diff del { background: #ffe3e3; color: #a1161b; }
+.diff ins { background: #dff5e3; color: #146c2e; text-decoration: none; }
+.diff-before { color: #555; }
+.version { border: 1px solid var(--line); border-radius: 10px; padding: .5rem .7rem; display: grid; gap: .25rem; }
+.version button { justify-self: start; }
+.overview-item { text-align: left; width: 100%; border: none; background: none; padding: .3rem .2rem; cursor: pointer; line-height: 1.5; }
+.overview-item:hover { background: #f3f6fb; }
+.overview { counter-reset: none; list-style: decimal; padding-left: 1.6rem; gap: .2rem; }
+.confirm-box { border: 1px solid #f0c36d; background: #fff8e8; border-radius: 12px; padding: .6rem .8rem; margin: .8rem 0;
+               display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; justify-content: space-between; }
+.confirm-box p { margin: 0; }
+.confirm-box.done { border-color: #8fd19e; background: #eefaf0; }
