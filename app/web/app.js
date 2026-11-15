@@ -41,6 +41,8 @@ const AI_PRESETS = [["natural", "자연스럽게"], ["youtuber", "유튜버 말�
                     ["plain", "과장 줄이기"], ["shorter", "30% 줄이기"], ["longer", "조금 길게"],
                     ["experience", "경험이 드러나게"], ["friendly", "친근하게"], ["polite", "정중하게"]];
 const AUTOSAVE_MS = 1200;
+const LOW_SCORE = 50;
+const PHOTO_SECS = [[0, "자동"], [1, "1초"], [2, "2초"], [3, "3초"], [4, "4초"], [5, "5초"], [7, "7초"], [10, "10초"]];
 
 const state = { info: null, job: null, script: null, options: null, music: [], pollTimer: null, pickerScene: -1,
                 selected: null, cancelling: false, opening: false, saveTimer: null, saving: null, dirty: false,
@@ -453,12 +455,26 @@ function smallImageUrl(i) {
   return `/api/jobs/${state.job.id}/image/${i}?small=1`;
 }
 
+function photoList(s) {
+  const first = s.image_index === null || s.image_index === undefined ? [] : [s.image_index];
+  return first.concat((s.more_images || []).filter((x) => !first.includes(x)));
+}
+
 function usedCounts() {
   const used = {};
   ((state.script && state.script.scenes) || []).forEach((s) => {
-    if (s.image_index !== null && s.image_index !== undefined) used[s.image_index] = (used[s.image_index] || 0) + 1;
+    photoList(s).forEach((k) => { used[k] = (used[k] || 0) + 1; });
   });
   return used;
+}
+
+function excluded() {
+  return (state.script && state.script.excluded_images) || [];
+}
+
+function photoInfo(i) {
+  const a = state.job && state.job.analysis;
+  return (a && a.photos && a.photos.find((p) => p.index === i)) || null;
 }
 
 // 사진 한 칸: 진짜 <img>를 넣어 칸 크기가 사진에 맞게 잡히게 한다(배경 그림으로 넣으면 칸이 찌그러져 겹쳐 보였음)
@@ -484,6 +500,19 @@ function photoTile(i, opts) {
     u.className = "used";
     u.textContent = o.used > 1 ? `사용 ${o.used}번` : "사용 중";
     el.appendChild(u);
+  }
+  if (o.category) {
+    const c = document.createElement("span");
+    c.className = "cat";
+    c.textContent = o.category;
+    el.appendChild(c);
+  }
+  if (o.excluded) {
+    el.classList.add("excluded");
+    const x = document.createElement("span");
+    x.className = "out";
+    x.textContent = "뺀 사진";
+    el.appendChild(x);
   }
   return el;
 }
@@ -640,7 +669,9 @@ function renderScenes() {
     } else {
       thumb.textContent = "사진 없음 · 눌러서 고르기";
     }
-    thumb.onclick = () => openPicker(i);
+    thumb.onclick = () => openPicker(i, "set");
+    if (excluded().includes(scene.image_index)) thumb.classList.add("excluded");
+    const photoBox = scenePhotos(scene, i);
 
     const ta = document.createElement("textarea");
     ta.value = scene.text;
@@ -732,10 +763,91 @@ function renderScenes() {
     aiBtn.onclick = (e) => { e.stopPropagation(); openAiDialog([i]); };
     actions.prepend(aiBtn);
 
-    li.append(head, thumb, ta, count, place, pickers, more, applied, actions);
+    li.append(head, thumb, photoBox, ta, count, place, pickers, more, applied, actions);
     list.appendChild(li);
   });
   markDirty();
+}
+
+// 장면의 사진 줄: 이어서 보여 줄 사진, 사진별 시간, AI 관련도 점수와 추천 사진
+function scenePhotos(scene, i) {
+  const box = el("div", "scene-photos");
+  const strip = el("div", "photo-strip");
+  (scene.more_images || []).forEach((k, n) => {
+    const t = el("span", "mini");
+    const img = document.createElement("img");
+    img.src = smallImageUrl(k);
+    img.alt = `이어서 보여 줄 사진 ${k + 1}`;
+    const x = el("button", "mini-x", "✕");
+    x.type = "button";
+    x.title = "이 사진 빼기";
+    x.setAttribute("aria-label", `장면 ${i + 1}에서 사진 ${k + 1} 빼기`);
+    x.onclick = (e) => {
+      e.stopPropagation();
+      scene.more_images.splice(n, 1);
+      scene.photo_secs = [];
+      renderScenes();
+    };
+    t.append(img, x);
+    strip.appendChild(t);
+  });
+  if (imageCount() > 1) {
+    const add = el("button", "add-photo", "+ 사진 더하기");
+    add.type = "button";
+    add.title = "이 장면에서 사진을 여러 장 이어서 보여 줘요";
+    add.onclick = (e) => { e.stopPropagation(); openPicker(i, "add"); };
+    strip.appendChild(add);
+  }
+  box.appendChild(strip);
+  const list = photoList(scene);
+  if (list.length > 1) {
+    const times = el("div", "photo-times");
+    times.appendChild(el("span", "muted", "사진별 시간"));
+    list.forEach((k, n) => {
+      const sel = document.createElement("select");
+      PHOTO_SECS.forEach(([v, label]) => sel.appendChild(new Option(`${n + 1}번째 ${label}`, String(v))));
+      sel.value = String((scene.photo_secs || [])[n] || 0);
+      sel.setAttribute("aria-label", `장면 ${i + 1} ${n + 1}번째 사진 시간`);
+      sel.addEventListener("change", () => {
+        const secs = list.map((_, m) => Number((scene.photo_secs || [])[m] || 0));
+        secs[n] = Number(sel.value);
+        scene.photo_secs = secs;
+      });
+      times.appendChild(sel);
+    });
+    box.appendChild(times);
+  }
+  if (scene.photo_score >= 0) {
+    const low = scene.photo_score < LOW_SCORE;
+    const badge = el("div", "score " + (low ? "low" : "good"),
+                     low ? `⚠ 글과 사진이 잘 안 맞을 수 있어요 (${scene.photo_score}점)`
+                         : `글과 사진이 잘 맞아요 (${scene.photo_score}점)`);
+    box.appendChild(badge);
+    const alts = (scene.photo_alts || []).filter((k) => k !== scene.image_index && !excluded().includes(k));
+    if (low && alts.length) {
+      const row = el("div", "alts");
+      row.appendChild(el("span", "muted", "추천 사진:"));
+      alts.forEach((k) => {
+        const b = el("button", "mini alt");
+        b.type = "button";
+        b.title = `사진 ${k + 1}로 바꾸기`;
+        b.setAttribute("aria-label", `장면 ${i + 1} 사진을 추천 사진 ${k + 1}로 바꾸기`);
+        const img = document.createElement("img");
+        img.src = smallImageUrl(k);
+        img.alt = "";
+        b.appendChild(img);
+        b.onclick = (e) => {
+          e.stopPropagation();
+          scene.image_index = k;
+          scene.photo_score = -1;
+          renderScenes();
+        };
+        row.appendChild(b);
+      });
+      box.appendChild(row);
+    }
+  }
+  return box;
 }
 
 function updateSummary() {
@@ -809,7 +921,7 @@ function addScene(text, imageIndex, at) {
 
 function duplicateScene(i) {
   const s = state.script.scenes[i];
-  state.script.scenes.splice(i + 1, 0, Object.assign({}, s, { transition: "auto" }));
+  state.script.scenes.splice(i + 1, 0, Object.assign(JSON.parse(JSON.stringify(s)), { transition: "auto" }));
   state.selected = i + 1;
   renderScenes();
   focusScene(i + 1);
@@ -838,30 +950,176 @@ function splitScene(i, ta) {
   focusScene(i + 1);
 }
 
-function openPicker(sceneIdx) {
+// mode: set = 첫 사진 바꾸기, add = 이어서 보여 줄 사진 더하기
+function openPicker(sceneIdx, mode) {
   state.pickerScene = sceneIdx;
-  const current = state.script.scenes[sceneIdx].image_index;
-  const used = usedCounts();
-  const grid = $("picker-grid");
-  grid.innerHTML = "";
-  const none = document.createElement("button");
-  none.type = "button";
-  none.className = "photo none" + (current === null || current === undefined ? " selected" : "");
-  none.textContent = "사진 없음";
-  none.onclick = () => pick(null);
-  grid.appendChild(none);
-  for (let i = 0; i < imageCount(); i++) {
-    grid.appendChild(photoTile(i, { onPick: pick, selected: current === i, used: used[i] }));
+  state.pickerMode = mode || "set";
+  state.pickerFilter = "전체";
+  const add = state.pickerMode === "add";
+  $("picker-title").textContent = add ? `장면 ${sceneIdx + 1}에 사진 더하기` : `장면 ${sceneIdx + 1} 사진 고르기`;
+  const box = $("picker-filter");
+  box.innerHTML = "";
+  const cats = [...new Set(Array.from({ length: imageCount() }, (_, i) => (photoInfo(i) || {}).category).filter(Boolean))];
+  if (cats.length > 1) {
+    ["전체"].concat(cats).forEach((c) => {
+      const b = el("button", "chip" + ((state.pickerFilter || "전체") === c ? " on" : ""), c);
+      b.type = "button";
+      b.onclick = () => { state.pickerFilter = c; openPickerGrid(); box.querySelectorAll(".chip").forEach((x) => x.classList.toggle("on", x === b)); };
+      box.appendChild(b);
+    });
+  } else {
+    state.pickerFilter = "전체";
   }
-  $("picker").showModal();
-  const sel = grid.querySelector(".selected");
+  openPickerGrid();
+  if (!$("picker").open) $("picker").showModal();
+  const sel = $("picker-grid").querySelector(".selected");
   if (sel) sel.scrollIntoView({ block: "center" });
 }
 
+function openPickerGrid() {
+  const scene = state.script.scenes[state.pickerScene];
+  const add = state.pickerMode === "add";
+  const current = scene.image_index;
+  const used = usedCounts();
+  const grid = $("picker-grid");
+  grid.innerHTML = "";
+  if (!add) {
+    const none = document.createElement("button");
+    none.type = "button";
+    none.className = "photo none" + (current === null || current === undefined ? " selected" : "");
+    none.textContent = "사진 없음";
+    none.onclick = () => pick(null);
+    grid.appendChild(none);
+  }
+  const filter = state.pickerFilter || "전체";
+  for (let i = 0; i < imageCount(); i++) {
+    const info = photoInfo(i);
+    if (filter !== "전체" && (!info || info.category !== filter)) continue;
+    const out = excluded().includes(i);
+    const cell = el("div", "photo-cell");
+    const tile = photoTile(i, { onPick: pick, selected: add ? photoList(scene).includes(i) : current === i,
+                                used: used[i], category: info && info.category, excluded: out });
+    if (info && info.description) tile.title = info.description;
+    const x = el("button", "exclude", out ? "되살리기" : "빼기");
+    x.type = "button";
+    x.setAttribute("aria-label", `사진 ${i + 1} ${out ? "되살리기" : "영상에서 빼기"}`);
+    x.onclick = () => toggleExclude(i);
+    cell.append(tile, x);
+    grid.appendChild(cell);
+  }
+}
+
 function pick(idx) {
-  state.script.scenes[state.pickerScene].image_index = idx;
+  const scene = state.script.scenes[state.pickerScene];
+  if (idx !== null && excluded().includes(idx)) return toast("뺀 사진이에요. 쓰려면 아래의 '되살리기'를 먼저 눌러 주세요.");
+  if (state.pickerMode === "add") {
+    if (idx === null || photoList(scene).includes(idx)) return toast("이미 이 장면에 있는 사진이에요.");
+    if (scene.image_index === null || scene.image_index === undefined) scene.image_index = idx;
+    else {
+      scene.more_images = (scene.more_images || []).concat([idx]);
+      if ((scene.more_images || []).length >= 6) $("picker").close();
+    }
+    scene.photo_secs = [];
+    openPickerGrid();
+    renderScenes();
+    return;
+  }
+  scene.image_index = idx;
+  scene.photo_score = -1;   // 직접 고른 사진은 AI 점수를 지운다
   $("picker").close();
   renderScenes();
+}
+
+function toggleExclude(i) {
+  const list = excluded();
+  if (list.includes(i)) {
+    state.script.excluded_images = list.filter((k) => k !== i);
+  } else {
+    const users = state.script.scenes.filter((s) => photoList(s).includes(i)).length;
+    if (users && !confirm(`이 사진을 쓰는 장면 ${users}개에서 사진이 빠져요. 뺄까요?`)) return;
+    state.script.scenes.forEach((s) => {
+      if (!photoList(s).includes(i)) return;   // 이 사진을 안 쓰는 장면은 그대로
+      s.more_images = (s.more_images || []).filter((k) => k !== i);
+      if (s.image_index === i) {   // 빠진 자리는 이어지는 사진 → AI 추천 사진 → 없음 순서로 채운다
+        const next = (s.more_images || []).shift();
+        const alt = (s.photo_alts || []).find((k) => k !== i && !list.includes(k));
+        s.image_index = next !== undefined ? next : alt !== undefined ? alt : null;
+        s.photo_score = -1;
+      }
+      s.photo_secs = [];
+    });
+    state.script.excluded_images = list.concat([i]);
+  }
+  openPickerGrid();
+  renderScenes();
+}
+
+// ---------- 사진 자동 맞추기 ----------
+async function runMatch() {
+  state.ai = { indexes: [], preset: null, items: [], mode: "photos" };
+  $("ai-title").textContent = "사진 자동 맞추기";
+  $("ai-ask").classList.add("hidden");
+  $("ai-results").innerHTML = "";
+  $("btn-ai-apply").classList.add("hidden");
+  setError("ai-error", "");
+  $("ai-wait").textContent = "AI가 장면마다 어울리는 사진을 찾고 있어요… (처음이면 사진 분석까지 1분쯤 걸려요)";
+  $("ai-wait").classList.remove("hidden");
+  $("ai-dialog").showModal();
+  try {
+    const map = serverIndexMap();
+    await saveNow();
+    const r = await api("POST", `/api/jobs/${state.job.id}/match-photos`);
+    state.job = await api("GET", `/api/jobs/${state.job.id}`);   // 처음 분석했으면 사진 분류가 생김
+    const all = r.matches.map((m) => Object.assign({}, m, { index: map[m.index] }));
+    all.forEach((m) => {   // 점수와 추천은 모든 장면에 적어 둔다(바꾸지 않은 장면은 지금 사진의 점수)
+      const s = state.script.scenes[m.index];
+      if (s) { s.photo_score = m.current_score; s.photo_alts = m.alts; }
+    });
+    const items = all.filter((m) => m.best !== null && m.best !== m.current && m.score > m.current_score);
+    state.ai.items = items;
+    const list = $("ai-results");
+    if (!items.length) {
+      list.appendChild(el("li", "muted", "지금 사진이 모두 잘 맞아요. 바꿀 사진이 없어요."));
+    }
+    items.forEach((m, k) => {
+      const li = el("li", "suggestion");
+      const head = el("label", "suggestion-head");
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.checked = true;
+      cb.dataset.k = k;
+      head.append(cb, el("span", "", ` 장면 ${m.index + 1} · ${m.current_score}점 → ${m.score}점 · ${m.reason}`));
+      const row = el("div", "swap");
+      [m.current, m.best].forEach((p, n) => {
+        if (n === 1) row.appendChild(el("span", "arrow", "→"));
+        if (p === null || p === undefined) row.appendChild(el("span", "mini empty", "사진 없음"));
+        else {
+          const img = document.createElement("img");
+          img.src = smallImageUrl(p);
+          img.alt = `사진 ${p + 1}`;
+          img.className = "mini";
+          row.appendChild(img);
+        }
+      });
+      const text = (state.script.scenes[m.index] || {}).text || "";
+      li.append(head, el("div", "muted", text.slice(0, 60)), row);
+      list.appendChild(li);
+    });
+    if (items.length) {
+      $("btn-ai-apply").classList.remove("hidden");
+      $("btn-ai-apply").textContent = "고른 사진으로 바꾸기";
+    }
+    state.opening = true;
+    renderScenes();
+    state.opening = false;
+    state.dirty = true;
+    saveNow().catch(() => {});
+  } catch (e) {
+    setError("ai-error", e.message);
+  } finally {
+    $("ai-wait").classList.add("hidden");
+    $("ai-wait").textContent = "AI가 고치는 중이에요… (보통 5~20초)";
+  }
 }
 
 function updateTitleCount() {
@@ -878,7 +1136,9 @@ function collectScript() {
                    direction: (s.direction || "").trim(), direction_done: s.direction_done || "",
                    section: s.section || "",
                    look: s.look || "auto", caption_size: s.caption_size || "auto",
-                   caption_pos: s.caption_pos || "auto", strength: s.strength || "auto", hold: s.hold || 0 }))
+                   caption_pos: s.caption_pos || "auto", strength: s.strength || "auto", hold: s.hold || 0,
+                   more_images: s.more_images || [], photo_secs: s.photo_secs || [],
+                   photo_score: s.photo_score === undefined ? -1 : s.photo_score, photo_alts: s.photo_alts || [] }))
     .filter((s) => s.text);
   return {
     scenes,
@@ -889,6 +1149,7 @@ function collectScript() {
     intro_sub: $("intro-sub").value.trim(),
     direction: $("direction").value.trim(),
     direction_done: state.script.direction_done || "",
+    excluded_images: excluded(),
   };
 }
 
@@ -1107,6 +1368,24 @@ async function applySuggestions() {
   if (!chosen.length) return setError("ai-error", "바꿀 것을 하나 이상 골라 주세요.");
   const review = state.ai.mode === "review";
   const scenes = state.script.scenes;
+  if (state.ai.mode === "photos") {
+    chosen.forEach((m) => {
+      const sc = scenes[m.index];
+      if (sc) { sc.image_index = m.best; sc.photo_score = m.score; }
+    });
+    $("ai-dialog").close();
+    state.opening = true;
+    renderScenes();
+    state.opening = false;
+    state.dirty = true;
+    try {
+      await saveNow("사진 바꾸기 전");
+      toast(`장면 ${chosen.length}개의 사진을 바꿨어요.`);
+    } catch (e) {
+      setError("edit-error", e.message);
+    }
+    return;
+  }
   chosen.forEach((s) => {
     const sc = scenes[s.index];
     if (!sc) return;
@@ -1514,6 +1793,7 @@ $("btn-ai-apply").onclick = applySuggestions;
 $("btn-ai-close").onclick = () => $("ai-dialog").close();
 $("ai-command").addEventListener("keydown", (e) => { if (e.key === "Enter") runAi(); });
 $("btn-review").onclick = runReview;
+$("btn-match").onclick = runMatch;
 $("btn-versions").onclick = openVersions;
 $("btn-versions-close").onclick = () => $("versions-dialog").close();
 $("btn-version-save").onclick = saveVersion;

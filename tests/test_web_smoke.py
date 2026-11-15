@@ -863,6 +863,73 @@ def test_confirm_flow_before_render(tmp_path, monkeypatch, browser):
         page.close()
 
 
+# ---------- 6단계: 사진 여러 장, 사진별 시간, 빼기, 자동 맞추기 ----------
+def _photo_editor(tmp_path, monkeypatch):
+    from app.models import Scene, VideoScript
+
+    m = _serve_with_photos(tmp_path, monkeypatch, n=5)
+    m.steps.generate_script = lambda post, key: VideoScript(
+        scenes=[Scene(text="첫 장면", image_index=0), Scene(text="둘째 장면", image_index=1),
+                Scene(text="셋째 장면", image_index=2)], yt_title="t", yt_description="d", yt_tags=[])
+    m.steps.analyze = lambda post, key: {"theme": "t", "photos": [
+        {"index": i, "category": "음식" if i % 2 else "풍경", "description": f"사진 {i} 설명"} for i in range(5)]}
+    m.steps.write_script = lambda post, key, analysis, settings, voice: m.steps.generate_script(post, key)
+    m.steps.match_photos = lambda script, post, analysis, key: [
+        {"index": 0, "current": 0, "current_score": 90, "best": 0, "score": 90, "alts": [0], "reason": "잘 맞음"},
+        {"index": 1, "current": 1, "current_score": 20, "best": 3, "score": 85, "alts": [3, 4], "reason": "회 사진"},
+        {"index": 2, "current": 2, "current_score": 30, "best": 4, "score": 70, "alts": [4, 3], "reason": "바다"}]
+    return m
+
+
+def test_add_photos_times_and_exclude(tmp_path, monkeypatch, browser):
+    m = _photo_editor(tmp_path, monkeypatch)
+    for base in _serve(m):
+        page = browser.new_page(viewport={"width": 390, "height": 844})
+        _to_edit(page, base)
+        page.click(".scene-card >> nth=0 >> .add-photo")
+        page.wait_for_selector("#picker[open]")
+        assert page.locator("#picker-filter .chip").count() == 3             # 전체 / 풍경 / 음식
+        page.click("#picker-filter .chip:has-text('음식')")
+        assert page.locator("#picker-grid .photo-cell").count() == 2          # 사진 1, 3
+        page.click("#picker-grid .photo-cell >> nth=1 >> button.photo")       # 사진 4(번호 3)를 더함
+        page.click("#picker-close")
+        assert page.evaluate("state.script.scenes[0].more_images") == [3]
+        assert page.locator(".scene-card >> nth=0 >> .photo-strip .mini").count() == 1
+        page.select_option(".scene-card >> nth=0 >> .photo-times select >> nth=0", "3")
+        assert page.evaluate("state.script.scenes[0].photo_secs") == [3, 0]
+        # 사진 빼기: 둘째 장면이 쓰는 사진 2(번호 1)를 빼면 그 장면 사진이 비고, 다시 고를 수 없다
+        page.click(".scene-card >> nth=1 >> .thumb")
+        page.once("dialog", lambda d: d.accept())
+        page.click("#picker-grid .photo-cell >> nth=1 >> .exclude")
+        assert page.evaluate("state.script.excluded_images") == [1]
+        assert page.evaluate("state.script.scenes[1].image_index") is None
+        assert page.locator("#picker-grid .photo.excluded").count() == 1
+        page.click("#picker-close")
+        page.wait_for_function("document.getElementById('save-status').textContent.includes('저장됨')")
+        s = m.get(page.evaluate("state.job.id")).script
+        assert s.excluded_images == [1] and s.scenes[0].more_images == [3] and s.scenes[0].photo_secs == [3.0, 0.0]
+        page.close()
+
+
+def test_auto_match_suggests_and_marks_low_scores(tmp_path, monkeypatch, browser):
+    m = _photo_editor(tmp_path, monkeypatch)
+    for base in _serve(m):
+        page = browser.new_page(viewport={"width": 1280, "height": 800})
+        _to_edit(page, base)
+        page.click("#btn-match")
+        page.wait_for_selector("#ai-results .suggestion")
+        assert page.locator("#ai-results .suggestion").count() == 2           # 바꿀 만한 장면만
+        page.uncheck("#ai-results .suggestion >> nth=1 >> input")             # 셋째 장면은 그대로
+        page.click("#btn-ai-apply")
+        assert page.evaluate("state.script.scenes.map(s => s.image_index)") == [0, 3, 2]
+        assert "잘 맞아요 (85점)" in page.inner_text(".scene-card >> nth=1 >> .score")
+        assert "잘 안 맞을 수 있어요 (30점)" in page.inner_text(".scene-card >> nth=2 >> .score")
+        page.click(".scene-card >> nth=2 >> .alts button >> nth=0")           # 추천 사진 눌러 바꾸기
+        assert page.evaluate("state.script.scenes[2].image_index") == 4
+        assert page.locator(".scene-card >> nth=2 >> .score").count() == 0
+        page.close()
+
+
 # ---------- 2단계: AI 모델 설정 화면 ----------
 def test_model_settings_screen(live_server, browser, monkeypatch):
     from app.ai import models as ai

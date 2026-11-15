@@ -32,6 +32,8 @@ INTRO_SEC = 3.0
 OUTRO_SEC = 3.5
 SOFT_SEC = 0.6
 CAPTION_IN = 0.35  # 자막이 아래에서 떠오르는 시간
+INNER = 0.5        # 한 장면 안에서 사진과 사진 사이를 겹치는 시간
+MIN_PHOTO = 0.8    # 시간을 '자동'으로 둔 사진이 적어도 보이는 시간
 MOTIONS = ("zoom_in", "pan_right", "zoom_out", "pan_left", "zoom_in", "pan_up", "zoom_out", "pan_down")  # 자동일 때 순서
 STRENGTH = {"subtle": 0.05, "strong": 0.18}   # 움직임 세기 → 확대·이동 비율 (기본은 ZOOM)
 LOOK = {   # 색감 → FFmpeg 필터
@@ -111,6 +113,24 @@ class Segment:
     transition: str = ""              # 이 토막으로 들어올 때의 xfade 종류. 비면 스타일의 기본 순서
     zoom: float = ZOOM                # 움직임 세기
     look: str = ""                    # 색감 필터 (LOOK 값). 비면 그대로
+    more: list[Path] = field(default_factory=list)      # 이어서 보여 줄 사진 (2배 크기로 준비됨)
+    shares: list[float] = field(default_factory=list)   # [bg, *more] 각각 보이는 시간 (합 = duration)
+
+
+def photo_shares(base: float, n: int, secs: list[float] | None = None) -> tuple[list[float], float]:
+    """사진 n장이 나눠 가질 시간과 장면 길이. secs[k] > 0 이면 그 사진은 그 시간만큼(사용자가 정함),
+    0이면 남은 시간을 똑같이 나눈다. 정한 시간이 목소리보다 길면 장면이 그만큼 길어진다(뒤는 조용히)."""
+    secs = [max(0.0, float(s)) for s in (list(secs or []) + [0.0] * n)[:n]]
+    fixed = sum(secs)
+    autos = sum(1 for s in secs if s <= 0)
+    if not autos:
+        if fixed >= base:
+            return secs, round(fixed, 3)
+        scale = base / fixed            # 정한 시간이 목소리보다 짧으면 같은 비율로 늘린다
+        return [s * scale for s in secs], base
+    total = max(base, fixed + MIN_PHOTO * autos)
+    each = (total - fixed) / autos
+    return [s if s > 0 else each for s in secs], round(total, 3)
 
 
 def _prepare_bg(src: str, out: Path, size: tuple[int, int]) -> Path:
@@ -156,22 +176,45 @@ def _segment_clip(i: int, seg: Segment, length: float, size: tuple[int, int], wo
     """소리 없는 영상 조각. length는 뒤 장면과 겹칠 전환 시간을 더한 길이."""
     w, h = size
     L = f"{length:.3f}"
-    if seg.bg is not None:
+    look = f",{seg.look}" if seg.look else ""
+    if seg.bg is not None and seg.more:
+        # 사진 여러 장: 사진마다 움직임을 주고, 장면 안에서 부드럽게 겹쳐 잇는다
+        bgs = [seg.bg, *seg.more]
+        shares = seg.shares if len(seg.shares) == len(bgs) else [seg.duration / len(bgs)] * len(bgs)
+        tail = max(0.0, length - sum(shares))
+        inner = min(INNER, min(shares) / 2)
+        start = MOTIONS.index(seg.motion) if seg.motion in MOTIONS else 0
+        inputs, graph = [], ""
+        for k, bg in enumerate(bgs):
+            dur = shares[k] + (inner if k < len(bgs) - 1 else tail)
+            motion = seg.motion if k == 0 else MOTIONS[(start + k) % len(MOTIONS)]
+            inputs += ["-loop", "1", "-framerate", str(FPS), "-t", f"{dur:.3f}", "-i", str(bg)]
+            graph += (f"[{k}:v]{_motion_chain(motion, dur, size, seg.zoom)}{look},fps={FPS},settb=AVTB,"
+                      f"setpts=PTS-STARTPTS[p{k}];")
+        last, offset = "p0", 0.0
+        for k in range(1, len(bgs)):
+            offset += shares[k - 1]
+            graph += f"[{last}][p{k}]xfade=transition=fade:duration={inner:.3f}:offset={offset:.3f}[q{k}];"
+            last = f"q{k}"
+        graph += f"[{last}]null[s0];"
+        base = len(bgs)
+    elif seg.bg is not None:
         inputs = ["-loop", "1", "-framerate", str(FPS), "-t", L, "-i", str(seg.bg)]
-        look = f",{seg.look}" if seg.look else ""
         graph = f"[0:v]{_motion_chain(seg.motion, length, size, seg.zoom)}{look}[s0];"
+        base = 1
     else:
         inputs = ["-f", "lavfi", "-t", L, "-i", f"color=c={BG_COLOR}:s={w}x{h}:r={FPS}"]
         graph = "[0:v]setsar=1[s0];"
+        base = 1
     n = 0
     for png in seg.overlays:
         inputs += ["-loop", "1", "-framerate", str(FPS), "-t", L, "-i", str(png)]
-        graph += f"[s{n}][{n + 1}:v]overlay=0:0[s{n + 1}];"
+        graph += f"[s{n}][{n + base}:v]overlay=0:0[s{n + 1}];"
         n += 1
     if seg.caption is not None:
         inputs += ["-loop", "1", "-framerate", str(FPS), "-t", L, "-i", str(seg.caption)]
         rise = max(8, round(h * 0.03))
-        graph += (f"[{n + 1}:v]format=rgba,fade=t=in:st=0:d={CAPTION_IN}:alpha=1[cap];"
+        graph += (f"[{n + base}:v]format=rgba,fade=t=in:st=0:d={CAPTION_IN}:alpha=1[cap];"
                   f"[s{n}][cap]overlay=x=0:y='max(0,{rise}*(1-t/{CAPTION_IN}))'[s{n + 1}];")
         n += 1
     graph += f"[s{n}]format=yuv420p[v]"
@@ -195,7 +238,7 @@ def _build_segments(post: BlogPost, script: VideoScript, options: RenderOptions,
     big = (w * SUPERSAMPLE, h * SUPERSAMPLE)
     tpl = options.template
     title = (script.intro_title or script.yt_title or post.title).strip()
-    photos = [_photo_for(post, s.image_index) for s in script.scenes]
+    photos = [next((p for x in s.photo_list() if (p := _photo_for(post, x))), None) for s in script.scenes]
     segs: list[Segment] = []
 
     def card(kind: str, photo: str | None, seconds: float, head: str, sub: str, tag: str) -> Segment:
@@ -213,12 +256,22 @@ def _build_segments(post: BlogPost, script: VideoScript, options: RenderOptions,
     for i, scene in enumerate(script.scenes):
         if not scene.audio_path or not scene.duration:
             raise UserError(FAILED)
-        bg = None
-        if photos[i]:
-            try:
-                bg = _prepare_bg(photos[i], workdir / f"bg_{i:02d}.jpg", size)
-            except OSError:
-                bg = None
+        bgs = []
+        for k, idx in enumerate(scene.photo_list()):
+            src = _photo_for(post, idx)
+            if src:
+                try:
+                    bgs.append(_prepare_bg(src, workdir / (f"bg_{i:02d}.jpg" if k == 0 else f"bg_{i:02d}_{k}.jpg"),
+                                           size))
+                except OSError:
+                    pass
+        bg = bgs[0] if bgs else None
+        base = round(scene.duration + scene.hold, 3)
+        if len(bgs) > 1:
+            secs = scene.photo_secs if len(scene.photo_secs) == len(scene.photo_list()) else []
+            shares, length = photo_shares(base, len(bgs), secs if len(bgs) == len(scene.photo_list()) else [])
+        else:
+            shares, length = [], base
         overlays = []
         if options.title_bar and (title or scene.place):
             overlays.append(visuals.render_overlay_png(title, scene.place, w, h, workdir / f"overlay_{i:02d}.png", tpl))
@@ -228,7 +281,7 @@ def _build_segments(post: BlogPost, script: VideoScript, options: RenderOptions,
             motion = scene.motion
         else:
             motion = "zoom_in" if options.effects == "soft" else MOTIONS[i % len(MOTIONS)]
-        segs.append(Segment(duration=round(scene.duration + scene.hold, 3), bg=bg, overlays=overlays,
+        segs.append(Segment(duration=length, bg=bg, more=bgs[1:], shares=shares, overlays=overlays,
                             caption=caption, audio=scene.audio_path, motion=motion,
                             transition=XFADE.get(scene.transition, ""),
                             zoom=STRENGTH.get(scene.strength, ZOOM), look=LOOK.get(scene.look, "")))

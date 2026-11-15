@@ -72,6 +72,7 @@ def default_steps() -> Steps:
     from app.scraper.naver import download_images, fetch_post
     from app.script import generate_script
     from app.ai.analyze import analyze
+    from app.ai.photos import match as match_photos
     from app.ai.rewrite import review, rewrite
     from app.director import direct
     from app.tts import preview, synthesize_all
@@ -80,7 +81,7 @@ def default_steps() -> Steps:
     return Steps(fetch_post=fetch_post, download_images=download_images, generate_script=generate_script,
                  synthesize_all=synthesize_all, render_video=render_video,
                  api_key=lambda: config.load_config().get("anthropic_api_key", ""),
-                 voice_preview=preview, fetch_music=fetch_audio, rewrite=rewrite, review=review, abort=stop_current, direct=direct, analyze=analyze,
+                 voice_preview=preview, fetch_music=fetch_audio, rewrite=rewrite, review=review, match_photos=match_photos, abort=stop_current, direct=direct, analyze=analyze,
                  write_script=lambda post, key, analysis, settings, voice: generate_script(
                      post, key, analysis=analysis, settings=settings, voice=voice),
                  channel_name=lambda: config.load_config().get("channel_name", ""))
@@ -277,6 +278,11 @@ def create_app(manager: JobManager | None = None) -> FastAPI:
         if not command:
             raise UserError(NO_COMMAND)
         return {"suggestions": manager.suggest_rewrite(job_id, body.indexes, command)}
+
+    @app.post("/api/jobs/{job_id}/match-photos")
+    def match_photos(job_id: str):
+        """장면마다 글과 사진이 맞는 정도와 추천 사진 (적용은 화면에서)."""
+        return {"matches": manager.suggest_photos(job_id)}
 
     @app.post("/api/jobs/{job_id}/ai-review")
     def ai_review(job_id: str):

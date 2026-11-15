@@ -33,6 +33,8 @@ CAPTION_SIZES = ("small", "large")
 CAPTION_POSITIONS = ("top", "center", "bottom")
 STRENGTHS = ("subtle", "strong")                               # 움직임 세기
 MAX_HOLD = 5.0                                                 # 목소리가 끝난 뒤 더 머무는 시간(초)
+MAX_MORE_IMAGES = 6                                            # 한 장면에 함께 보여 줄 사진 (첫 사진 말고)
+MAX_PHOTO_SEC = 30.0
 
 
 VOICE_KEYS = ("female", "female_bright", "female_calm", "male", "male_deep", "hyunsu",
@@ -62,6 +64,50 @@ class Scene(BaseModel):
     caption_pos: str = "auto"     # 자막 위치: auto(아래) 또는 CAPTION_POSITIONS
     strength: str = "auto"        # 움직임 세기: auto 또는 STRENGTHS
     hold: float = 0.0             # 더 머무는 시간(초)
+
+    # --- 사진 (6단계) ---
+    more_images: list[int] = Field(default_factory=list)   # 첫 사진(image_index) 뒤에 이어 보여 줄 사진
+    photo_secs: list[float] = Field(default_factory=list)  # [첫 사진, 이어지는 사진…] 각각 보여 줄 시간(초). 0 = 자동
+    photo_score: int = -1         # AI가 본 '글과 사진이 맞는 정도' 0~100 (-1 = 모름)
+    photo_alts: list[int] = Field(default_factory=list)    # AI가 추천한 사진 (좋은 순)
+
+    @field_validator("more_images", mode="before")
+    @classmethod
+    def _more_images(cls, v):
+        out = []
+        for x in v or []:
+            if isinstance(x, int) and x >= 0 and x not in out:
+                out.append(x)
+        return out[:MAX_MORE_IMAGES]
+
+    @field_validator("photo_secs", mode="before")
+    @classmethod
+    def _photo_secs(cls, v):
+        out = []
+        for x in (v or [])[:MAX_MORE_IMAGES + 1]:
+            try:
+                out.append(round(min(MAX_PHOTO_SEC, max(0.0, float(x))), 2))
+            except (TypeError, ValueError):
+                out.append(0.0)
+        return out
+
+    @field_validator("photo_score", mode="before")
+    @classmethod
+    def _photo_score(cls, v):
+        try:
+            return max(-1, min(100, int(v)))
+        except (TypeError, ValueError):
+            return -1
+
+    @field_validator("photo_alts", mode="before")
+    @classmethod
+    def _photo_alts(cls, v):
+        return [x for x in (v or []) if isinstance(x, int) and x >= 0][:4]
+
+    def photo_list(self) -> list[int]:
+        """이 장면에 보여 줄 사진 번호 (첫 사진 + 이어지는 사진)."""
+        first = [] if self.image_index is None else [self.image_index]
+        return first + [x for x in self.more_images if x not in first]
 
     @field_validator("section", mode="before")
     @classmethod
@@ -116,6 +162,7 @@ class VideoScript(BaseModel):
     intro_sub: str = ""    # 시작 화면 둘째 줄 (지역·기간 등)
     direction: str = Field(default="", max_length=600)        # 영상 전체에 대한 연출 요청
     direction_done: str = Field(default="", max_length=600)
+    excluded_images: list[int] = Field(default_factory=list)   # 영상에 쓰지 않기로 한 사진 (AI 매칭도 안 씀)
 
 
 class RenderOptions(BaseModel):

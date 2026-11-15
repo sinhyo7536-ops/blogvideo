@@ -195,6 +195,7 @@
         <button type="button" class="ghost" id="btn-overview">전체 대본 보기</button>
         <button type="button" class="ghost" id="btn-ai-all">AI로 전체 고치기</button>
         <button type="button" class="ghost" id="btn-review">맞춤법·문맥 검사</button>
+        <button type="button" class="ghost" id="btn-match">사진 자동 맞추기</button>
         <button type="button" class="ghost" id="btn-versions">버전 기록</button>
         <span class="save-status muted" id="save-status" aria-live="polite"></span>
       </div>
@@ -361,8 +362,10 @@
   </dialog>
 
   <dialog id="picker">
-    <h2>사진 고르기</h2>
-    <p class="muted">번호는 블로그에 올린 순서예요. 지금 쓰는 사진은 파란 테두리로 표시돼요.</p>
+    <h2 id="picker-title">사진 고르기</h2>
+    <p class="muted" id="picker-hint">번호는 블로그에 올린 순서예요. 지금 쓰는 사진은 파란 테두리로 표시돼요.
+      영상에 넣고 싶지 않은 사진은 아래의 <b>빼기</b>를 누르세요.</p>
+    <div class="presets" id="picker-filter"></div>
     <div id="picker-grid" class="picker-grid"></div>
     <button type="button" class="ghost" id="picker-close">닫기</button>
   </dialog>

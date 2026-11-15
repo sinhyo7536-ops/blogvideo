@@ -54,6 +54,7 @@ class Steps:
     fetch_music: Callable | None = None     # (유튜브 주소, 음악 폴더) → 파일 이름
     rewrite: Callable | None = None         # (대본, 장면 번호들, 명령, 키, 글, 분석) → 제안 목록 (app.ai.rewrite)
     review: Callable | None = None          # (대본, 키) → 맞춤법·문맥 제안 목록
+    match_photos: Callable | None = None    # (대본, 글, 분석, 키) → 장면별 사진 추천 (app.ai.photos)
 
 
 def fingerprint(script: VideoScript | None) -> str:
@@ -61,7 +62,8 @@ def fingerprint(script: VideoScript | None) -> str:
     if script is None:
         return ""
     d = script.model_dump(exclude={"direction_done": True,
-                                   "scenes": {"__all__": {"duration", "audio_path", "direction_done"}}})
+                                   "scenes": {"__all__": {"duration", "audio_path", "direction_done",
+                                                          "photo_score", "photo_alts"}}})
     return hashlib.sha1(json.dumps(d, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()[:16]
 
 
@@ -239,6 +241,18 @@ class JobManager:
     def suggest_rewrite(self, job_id: str, indexes: list[int], command: str) -> list[dict]:
         s, key = self._ai_ready(job_id)
         return self.steps.rewrite(s.script, indexes, command, key, s.post, s.analysis)
+
+    def suggest_photos(self, job_id: str) -> list[dict]:
+        """장면별 사진 추천. 여행 분석(사진 설명)이 없으면 먼저 분석한다."""
+        s, key = self._ai_ready(job_id)
+        if not s.post or not s.post.images:
+            return []
+        analysis = s.analysis
+        if analysis is None and self.steps.analyze is not None:
+            a = self.steps.analyze(s.post, key)
+            analysis = a.model_dump() if hasattr(a, "model_dump") else a
+            self._set(job_id, analysis=analysis)
+        return self.steps.match_photos(s.script, s.post, analysis, key)
 
     def suggest_review(self, job_id: str) -> list[dict]:
         s, key = self._ai_ready(job_id)
