@@ -8,7 +8,7 @@ from urllib.parse import quote
 
 from fastapi import FastAPI, File, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from typing import Literal
 
@@ -177,6 +177,15 @@ def _thumbnail_path(s: JobState) -> Path | None:
     return p if p.exists() else None
 
 
+def _fingerprint(path: Path) -> str:
+    import hashlib
+
+    try:
+        return hashlib.sha1(path.read_bytes()).hexdigest()[:10]
+    except OSError:
+        return "0"
+
+
 def _mask(key: str) -> str:
     if not key:
         return ""
@@ -240,7 +249,19 @@ def create_app(manager: JobManager | None = None) -> FastAPI:
 
     @app.get("/")
     def index():
-        return FileResponse(web / "index.html", headers={"Cache-Control": "no-cache"})
+        # 화면 파일 주소에 내용 지문을 붙인다: 앱을 새로 설치하면 주소가 바뀌어 창이 예전 화면 코드를 쓰지 않는다
+        # (2026-11-15: 캐시에 남은 0.6.0 화면이 지운 '제미나이' 모드를 보내 "입력한 내용이 올바르지 않아요"가 났다)
+        html = (web / "index.html").read_text("utf-8")
+        for name in ("app.js", "app.css"):
+            html = html.replace(f"/static/{name}\"", f"/static/{name}?v={_fingerprint(web / name)}\"")
+        return HTMLResponse(html, headers={"Cache-Control": "no-cache"})
+
+    @app.middleware("http")
+    async def _revalidate_static(request: Request, call_next):
+        response = await call_next(request)
+        if request.url.path.startswith("/static/"):
+            response.headers["Cache-Control"] = "no-cache"   # 쓸 때마다 바뀌었는지 확인 (이 PC 안이라 빠름)
+        return response
 
     app.mount("/static", StaticFiles(directory=web), name="static")
 
