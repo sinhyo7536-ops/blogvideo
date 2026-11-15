@@ -23,6 +23,9 @@ NO_POSTS = "글을 하나도 불러오지 못했어요. 주소를 확인하고 �
 BAD_PHOTO = "사진 파일을 열 수 없어요. JPG나 PNG 사진을 올려 주세요."
 SAME_PHOTO = "이미 들어 있는 사진이에요."
 NOTHING_TO_RETRY = "다시 불러올 글이 없어요."
+NO_VIDEO = "먼저 영상을 만들어 주세요."
+NO_SHORTS = "쇼츠 대본이 비어 있어요."
+SHORTS_FAILED = "쇼츠를 만들지 못했어요. 다시 시도해 주세요."
 INTERRUPTED = "작업이 중간에 멈췄어요. 다시 시도해 주세요."
 BUSY = "지금은 바꿀 수 없어요. 진행 중인 작업이 끝난 뒤 다시 해 주세요."
 NO_SCRIPT = "대본이 아직 없어요."
@@ -59,6 +62,8 @@ class Steps:
     rewrite: Callable | None = None         # (대본, 장면 번호들, 명령, 키, 글, 분석) → 제안 목록 (app.ai.rewrite)
     review: Callable | None = None          # (대본, 키) → 맞춤법·문맥 제안 목록
     match_photos: Callable | None = None    # (대본, 글, 분석, 키) → 장면별 사진 추천 (app.ai.photos)
+    plan_shorts: Callable | None = None     # (대본, 글, 분석, 키) → 쇼츠 대본 (app.ai.shorts)
+    youtube_text: Callable | None = None    # (대본, 글, 분석, 영상 설정, 키) → 유튜브 글 (app.ai.youtube)
 
 
 def fingerprint(script: VideoScript | None) -> str:
@@ -320,7 +325,7 @@ class JobManager:
         with self._lock:
             self._cancel.discard(job_id)
         s = self.get(job_id)
-        if phase == "sources":
+        if phase in ("sources", "shorts"):
             self._set(job_id, stage=self._return.pop(job_id, "ready"), progress=1.0, message="")
         elif phase == "render":
             self._set(job_id, stage="ready", progress=1.0, message="", failed_phase=None)
@@ -392,6 +397,8 @@ class JobManager:
                 self._write(job_id)
             elif phase == "sources":
                 self._retry_sources(job_id)
+            elif phase == "shorts":
+                self._shorts(job_id)
             else:
                 self._render(job_id)
         except Cancelled:
@@ -540,6 +547,88 @@ class JobManager:
         ref = ImageRef(url=f"upload:{Path(name).name or path.name}", local_path=str(path), para=-1, post=-1)
         post = s.post.model_copy(update={"images": list(s.post.images) + [ref]})
         return self._set(job_id, post=post)
+
+    # ---------- 유튜브 글, 썸네일 ----------
+    def make_youtube(self, job_id: str) -> dict:
+        s, key = self._ai_ready(job_id)
+        text = self.steps.youtube_text(s.script, s.post, s.analysis, s.options, key)
+        self._set(job_id, youtube=text)
+        return text
+
+    def remake_thumbnail(self, job_id: str, text: str) -> JobState:
+        """썸네일 문구를 바꿔 다시 만든다 (AI 없이, 바로)."""
+        from app import visuals
+        from app.render import _photo_for
+
+        s = self.get(job_id)
+        if not s.video_path:
+            raise UserError(NO_VIDEO)
+        photo = next((p for sc in s.script.scenes for x in sc.photo_list() if (p := _photo_for(s.post, x))), None)
+        channel = (self.steps.channel_name() or s.post.blog_name or "").strip()[:40]
+        visuals.render_thumbnail(photo, " ".join(text.split())[:40], channel,
+                                 Path(s.video_path).parent / "thumbnail.jpg", s.options.template)
+        return self._set(job_id, finished_at=time.time())   # 화면이 새 썸네일을 받도록 시각을 바꾼다
+
+    # ---------- 쇼츠 ----------
+    def plan_shorts(self, job_id: str) -> VideoScript:
+        s, key = self._ai_ready(job_id)
+        shorts = self.steps.plan_shorts(s.script, s.post, s.analysis, key)
+        self._set(job_id, shorts_script=shorts)
+        return shorts
+
+    def start_shorts(self, job_id: str, script: VideoScript) -> JobState:
+        s = self.get(job_id)
+        if s.stage in _ACTIVE or s.post is None:
+            raise UserError(BUSY)
+        if not any(x.text.strip() for x in script.scenes):
+            raise UserError(NO_SHORTS)
+        script = script.model_copy(update={"scenes": [x for x in script.scenes if x.text.strip()]})
+        self._return[job_id] = s.stage if s.stage in ("ready", "done") else "ready"
+        s = self._set(job_id, shorts_script=script, stage="queued", progress=0.0, shorts_error="", message="")
+        self._queue.put((job_id, "shorts"))
+        return s
+
+    def _shorts(self, job_id: str) -> None:
+        back = self._return.get(job_id, "ready")
+        try:
+            s = self._set(job_id, stage="tts", progress=0.0)
+            voiced = self.steps.synthesize_all(s.shorts_script, s.options.voice, self.dir(job_id) / "shorts_audio",
+                                               on_progress=lambda p: self._tick(job_id, round(0.2 * p, 3)),
+                                               speed=s.options.speed)
+            self._check(job_id)
+            self._set(job_id, stage="rendering", progress=0.2)
+            channel = (self.steps.channel_name() or s.post.blog_name or "").strip()[:40]
+            options = s.options.model_copy(update={"aspect": "9:16", "intro": False, "outro": False,
+                                                   "channel": channel})
+            out = self.steps.render_video(s.post, voiced, options, self.dir(job_id) / "shorts",
+                                          on_progress=lambda p: self._tick(job_id, round(0.2 + 0.8 * p, 3)))
+            self._check(job_id)
+            self._return.pop(job_id, None)
+            self._set(job_id, stage=back, progress=1.0, shorts_script=voiced, shorts_path=str(out))
+        except Cancelled:
+            raise
+        except UserError as e:
+            if job_id in self._cancel:
+                raise Cancelled() from e
+            self._return.pop(job_id, None)
+            self._set(job_id, stage=back, progress=1.0, shorts_error=e.message)
+        except Exception:
+            if job_id in self._cancel:
+                raise Cancelled()
+            log.exception("shorts failed for %s", job_id)
+            self._return.pop(job_id, None)
+            self._set(job_id, stage=back, progress=1.0, shorts_error=SHORTS_FAILED)
+
+    # ---------- 영상 검수 ----------
+    def checkup(self, job_id: str) -> dict:
+        from app.ai.checkup import checkup
+
+        s = self.get(job_id)
+        if s.script is None:
+            raise UserError(NO_SCRIPT)
+        if s.stage in _ACTIVE:
+            raise UserError(BUSY)
+        return checkup(s.script, s.post, s.options, self.steps.api_key(), self.steps.review)
 
     # ---------- 프로젝트 ----------
     def list_jobs(self) -> list[JobState]:

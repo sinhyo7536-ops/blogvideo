@@ -1030,6 +1030,76 @@ def test_several_urls_failed_post_retry_and_photo_upload(tmp_path, monkeypatch, 
         page.close()
 
 
+# ---------- 8단계: 유튜브 글, 쇼츠, 영상 검수 ----------
+def _result_server(tmp_path, monkeypatch):
+    from app.models import Scene, VideoScript
+
+    m = _start(tmp_path, monkeypatch)
+    m.steps.youtube_text = lambda script, post, analysis, options, key: {
+        "titles": ["통영 1박 2일 코스", "바다가 예쁜 통영"], "description": "통영 여행 챕터 0:00 동피랑",
+        "hashtags": ["통영", "거제"], "hashtag_text": "#통영 #거제", "thumbnail_texts": ["통영 꿀코스"],
+        "keywords": ["통영 여행"], "chapters": []}
+    m.steps.plan_shorts = lambda script, post, analysis, key: VideoScript(
+        scenes=[Scene(text="통영 이거 꼭 보세요", image_index=0), Scene(text="벽화 골목", image_index=0),
+                Scene(text="본편에서 더!", image_index=0)], yt_title="t #shorts", yt_description="d", yt_tags=[])
+    m.steps.review = lambda script, key: [{"index": 0, "before": "장면", "after": "장면이에요", "reason": "문장"}]
+    return m
+
+
+def _to_result(page, base):
+    _to_edit(page, base)
+    page.click("button:has-text('영상 만들기')")
+    page.wait_for_selector("#view-result:not(.hidden)", timeout=10000)
+
+
+def test_youtube_text_and_thumbnail_text(tmp_path, monkeypatch, browser):
+    m = _result_server(tmp_path, monkeypatch)
+    for base in _serve(m):
+        page = browser.new_page(viewport={"width": 390, "height": 844})
+        _to_result(page, base)
+        page.click("#btn-yt")
+        page.wait_for_selector("#yt-result:not(.hidden)")
+        assert page.locator("#yt-titles li").count() == 2
+        assert page.inner_text("#yt-hashtags") == "#통영 #거제" and "챕터" in page.inner_text("#yt-desc-out")
+        old = page.get_attribute("#thumb-img", "src")
+        page.click("#yt-thumbs li >> nth=0 >> text=이 문구로 썸네일 만들기")
+        page.wait_for_function(f"document.getElementById('thumb-img').getAttribute('src') !== {old!r}")
+        page.close()
+
+
+def test_shorts_plan_edit_render(tmp_path, monkeypatch, browser):
+    m = _result_server(tmp_path, monkeypatch)
+    for base in _serve(m):
+        page = browser.new_page(viewport={"width": 1280, "height": 800})
+        _to_result(page, base)
+        page.click("#btn-shorts-plan")
+        page.wait_for_selector("#shorts-edit:not(.hidden)")
+        assert page.locator("#shorts-scenes li").count() == 3
+        page.fill("#shorts-scenes textarea >> nth=1", "고친 벽화 골목")
+        page.click("#shorts-scenes li >> nth=2 >> text=빼기")
+        assert "장면 2개" in page.inner_text("#shorts-summary")
+        page.click("#btn-shorts-render")
+        page.wait_for_selector("#view-result:not(.hidden) #shorts-result:not(.hidden)", timeout=10000)
+        assert page.get_attribute("#btn-shorts-download", "href").endswith("/shorts/video?download=1")
+        s = m.get(page.evaluate("state.job.id"))
+        assert [x.text for x in s.shorts_script.scenes] == ["통영 이거 꼭 보세요", "고친 벽화 골목"] and s.video_path
+        page.close()
+
+
+def test_checkup_lists_items_and_jumps_to_scene(tmp_path, monkeypatch, browser):
+    m = _result_server(tmp_path, monkeypatch)
+    for base in _serve(m):
+        page = browser.new_page(viewport={"width": 390, "height": 844})
+        _to_result(page, base)
+        page.click("#btn-checkup")
+        page.wait_for_selector("#check-list li")
+        assert "오탈자 1개" in page.inner_text("#check-summary")
+        page.click("#check-list li.typo >> text=고치러 가기")
+        page.wait_for_selector("#view-edit:not(.hidden)")
+        assert page.evaluate("state.selected") == 0
+        page.close()
+
+
 # ---------- 2단계: AI 모델 설정 화면 ----------
 def test_model_settings_screen(live_server, browser, monkeypatch):
     from app.ai import models as ai

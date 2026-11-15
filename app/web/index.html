@@ -287,6 +287,50 @@
         <div class="copy-item"><div><b>설명</b><p id="out-desc" class="pre"></p></div><button type="button" data-copy="out-desc">설명 복사</button></div>
         <div class="copy-item"><div><b>태그</b><p id="out-tags"></p></div><button type="button" data-copy="out-tags">태그 복사</button></div>
       </div>
+
+      <section class="result-box" id="yt-box">
+        <h2>유튜브에 올릴 글</h2>
+        <p class="muted">AI가 제목 후보, 설명(장소별 챕터 포함), 해시태그, 썸네일 문구, 검색 키워드를 써 줘요.</p>
+        <button type="button" class="ghost" id="btn-yt">AI로 유튜브 글 만들기</button>
+        <p class="muted hidden" id="yt-wait">쓰는 중이에요… (보통 5~15초)</p>
+        <p class="error-text hidden" id="yt-error" role="alert"></p>
+        <div class="hidden" id="yt-result">
+          <h3>제목 후보 <small class="muted">마음에 드는 것을 복사하세요</small></h3>
+          <ul class="copy-rows" id="yt-titles"></ul>
+          <div class="copy-item"><div><b>설명</b><p id="yt-desc-out" class="pre"></p></div><button type="button" data-copy="yt-desc-out">설명 복사</button></div>
+          <div class="copy-item"><div><b>해시태그</b><p id="yt-hashtags"></p></div><button type="button" data-copy="yt-hashtags">해시태그 복사</button></div>
+          <div class="copy-item"><div><b>검색 키워드</b><p id="yt-keywords"></p></div><button type="button" data-copy="yt-keywords">키워드 복사</button></div>
+          <h3>썸네일 문구 <small class="muted">누르면 그 문구로 썸네일을 다시 만들어요</small></h3>
+          <ul class="copy-rows" id="yt-thumbs"></ul>
+        </div>
+      </section>
+
+      <section class="result-box" id="shorts-box">
+        <h2>쇼츠 (세로 1분 영상)</h2>
+        <p class="muted">이 영상에서 가장 재밌는 장면만 골라 쇼츠를 만들어요. AI가 고른 대본을 확인하고 고친 뒤에 만들어요.</p>
+        <button type="button" class="ghost" id="btn-shorts-plan">쇼츠 대본 만들기</button>
+        <p class="muted hidden" id="shorts-wait">AI가 장면을 고르는 중이에요… (보통 10~30초)</p>
+        <p class="error-text hidden" id="shorts-error" role="alert"></p>
+        <div class="hidden" id="shorts-edit">
+          <ol class="shorts-scenes" id="shorts-scenes"></ol>
+          <p class="muted" id="shorts-summary"></p>
+          <button type="button" class="primary" id="btn-shorts-render">이 대본으로 쇼츠 만들기</button>
+        </div>
+        <div class="hidden" id="shorts-result">
+          <video id="shorts-video" controls playsinline preload="metadata"></video>
+          <a class="ghost as-btn" id="btn-shorts-download" download>쇼츠 저장</a>
+        </div>
+      </section>
+
+      <section class="result-box" id="check-box">
+        <h2>영상 검수</h2>
+        <p class="muted">같은 사진 반복, 빠진 사진, 너무 길거나 빨리 지나가는 자막, 글과 안 맞는 사진, 오탈자를 찾아 줘요.</p>
+        <button type="button" class="ghost" id="btn-checkup">영상 검수하기</button>
+        <p class="muted hidden" id="check-wait">살펴보는 중이에요…</p>
+        <p class="error-text hidden" id="check-error" role="alert"></p>
+        <p class="hidden" id="check-summary"></p>
+        <ul class="check-list" id="check-list"></ul>
+      </section>
       <div class="row">
         <button type="button" class="ghost" id="btn-reedit">대본 고쳐서 다시 만들기</button>
         <button type="button" class="ghost" id="btn-new">새 영상 만들기</button>

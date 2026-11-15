@@ -237,6 +237,10 @@ class JobState(BaseModel):
     script: VideoScript | None = None
     analysis: dict | None = None        # AI 여행 분석 (app.ai.analyze.TravelAnalysis)
     settings: ScriptSettings = Field(default_factory=ScriptSettings)
+    youtube: dict | None = None         # AI가 쓴 유튜브 글 (제목 후보·설명·해시태그·썸네일 문구·키워드·챕터)
+    shorts_script: VideoScript | None = None   # 쇼츠 대본 (사용자가 확인·수정)
+    shorts_path: str | None = None      # 만든 쇼츠 영상
+    shorts_error: str = ""              # 쇼츠를 만들지 못한 까닭 (본 영상 화면에 보여 줌)
     render_info: dict | None = None     # 마지막 영상 만들기: 걸린 시간, 장면 조각 수, 다시 쓴 조각 수
     confirmed: str = ""                 # 사용자가 '대본 확정'을 누른 대본의 지문 (고치면 달라져 다시 확정해야 함)
     options: RenderOptions = Field(default_factory=RenderOptions)

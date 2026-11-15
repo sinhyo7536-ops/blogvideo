@@ -1581,6 +1581,11 @@ function openResult(job) {
       + `걸린 시간 ${Math.max(1, Math.round(info.seconds))}초`
     : "";
   $("render-info").classList.toggle("hidden", !info);
+  renderYoutube(job.youtube);
+  renderShortsBox(job);
+  $("check-list").innerHTML = "";
+  $("check-summary").classList.add("hidden");
+  setError("check-error", "");
   $("out-title").textContent = job.script.yt_title;
   $("out-desc").textContent = job.script.yt_description;
   $("out-tags").textContent = job.script.yt_tags.join(", ");
@@ -1825,6 +1830,185 @@ function goHome(clear) {
   loadProjects();
 }
 
+// ---------- 유튜브 글 ----------
+function copyRow(text, extraLabel, extraFn) {
+  const li = el("li", "copy-row");
+  li.appendChild(el("span", "", text));
+  const b = el("button", "ghost small", "복사");
+  b.type = "button";
+  b.onclick = async () => toast((await copyText(text)) ? "복사했어요" : "복사하지 못했어요.");
+  li.appendChild(b);
+  if (extraLabel) {
+    const x = el("button", "ghost small", extraLabel);
+    x.type = "button";
+    x.onclick = () => extraFn(text);
+    li.appendChild(x);
+  }
+  return li;
+}
+
+function renderYoutube(y) {
+  $("yt-result").classList.toggle("hidden", !y);
+  setError("yt-error", "");
+  if (!y) return;
+  $("yt-titles").innerHTML = "";
+  y.titles.forEach((t) => $("yt-titles").appendChild(copyRow(t)));
+  $("yt-desc-out").textContent = y.description;
+  $("yt-hashtags").textContent = y.hashtag_text || y.hashtags.map((t) => "#" + t).join(" ");
+  $("yt-keywords").textContent = y.keywords.join(", ");
+  $("yt-thumbs").innerHTML = "";
+  y.thumbnail_texts.forEach((t) => $("yt-thumbs").appendChild(copyRow(t, "이 문구로 썸네일 만들기", remakeThumb)));
+}
+
+async function makeYoutube() {
+  setError("yt-error", "");
+  $("btn-yt").disabled = true;
+  $("yt-wait").classList.remove("hidden");
+  try {
+    const y = await api("POST", `/api/jobs/${state.job.id}/youtube`);
+    state.job.youtube = y;
+    renderYoutube(y);
+  } catch (e) {
+    setError("yt-error", e.message);
+  } finally {
+    $("btn-yt").disabled = false;
+    $("yt-wait").classList.add("hidden");
+  }
+}
+
+async function remakeThumb(text) {
+  try {
+    const job = await api("POST", `/api/jobs/${state.job.id}/thumbnail`, { text });
+    state.job = job;
+    $("thumb-img").src = `/api/jobs/${job.id}/thumbnail?v=${job.finished_at}`;
+    $("thumb-box").scrollIntoView({ block: "center" });
+    toast("썸네일을 다시 만들었어요.");
+  } catch (e) {
+    setError("yt-error", e.message);
+  }
+}
+
+// ---------- 쇼츠 ----------
+function renderShortsBox(job) {
+  setError("shorts-error", job.shorts_error || "");
+  const has = !!job.has_shorts;
+  $("shorts-result").classList.toggle("hidden", !has);
+  if (has) {
+    const v = `/api/jobs/${job.id}/shorts/video?v=${job.finished_at || job.created_at}#t=0.5`;
+    if ($("shorts-video").dataset.src !== v) {
+      $("shorts-video").src = v;
+      $("shorts-video").dataset.src = v;
+    }
+    $("btn-shorts-download").href = `/api/jobs/${job.id}/shorts/video?download=1`;
+  }
+  state.shorts = job.shorts_script ? JSON.parse(JSON.stringify(job.shorts_script)) : null;
+  $("btn-shorts-plan").textContent = state.shorts ? "쇼츠 대본 새로 만들기" : "쇼츠 대본 만들기";
+  renderShortsEditor(!has && !!state.shorts);
+}
+
+function renderShortsEditor(open) {
+  $("shorts-edit").classList.toggle("hidden", !open || !state.shorts);
+  if (!state.shorts) return;
+  const list = $("shorts-scenes");
+  list.innerHTML = "";
+  state.shorts.scenes.forEach((s, i) => {
+    const li = el("li", "short-scene");
+    if (s.image_index !== null && s.image_index !== undefined) {
+      const img = document.createElement("img");
+      img.className = "mini";
+      img.src = smallImageUrl(s.image_index);
+      img.alt = "";
+      li.appendChild(img);
+    }
+    const ta = document.createElement("textarea");
+    ta.rows = 2;
+    ta.value = s.text;
+    ta.setAttribute("aria-label", `쇼츠 장면 ${i + 1} 자막`);
+    ta.addEventListener("input", () => { s.text = ta.value; shortsSummary(); });
+    const x = el("button", "ghost small", "빼기");
+    x.type = "button";
+    x.disabled = state.shorts.scenes.length <= 1;
+    x.onclick = () => { state.shorts.scenes.splice(i, 1); renderShortsEditor(true); };
+    li.append(ta, x);
+    list.appendChild(li);
+  });
+  shortsSummary();
+}
+
+function shortsSummary() {
+  const scenes = state.shorts.scenes.filter((s) => s.text.trim());
+  const chars = scenes.reduce((a, s) => a + s.text.trim().length, 0);
+  const sec = Math.round(chars / 5.5 + scenes.length * 0.4);
+  $("shorts-summary").textContent = `장면 ${scenes.length}개 · ${chars}자 · 약 ${sec}초` + (sec > 60 ? " (60초가 넘어요. 글을 줄여 주세요)" : "");
+}
+
+async function planShorts() {
+  setError("shorts-error", "");
+  $("btn-shorts-plan").disabled = true;
+  $("shorts-wait").classList.remove("hidden");
+  try {
+    const r = await api("POST", `/api/jobs/${state.job.id}/shorts/plan`);
+    state.shorts = r.script;
+    state.job.shorts_script = r.script;
+    $("shorts-result").classList.add("hidden");
+    renderShortsEditor(true);
+  } catch (e) {
+    setError("shorts-error", e.message);
+  } finally {
+    $("btn-shorts-plan").disabled = false;
+    $("shorts-wait").classList.add("hidden");
+  }
+}
+
+async function renderShortsVideo() {
+  setError("shorts-error", "");
+  try {
+    routeJob(await api("POST", `/api/jobs/${state.job.id}/shorts`, { script: state.shorts }));
+  } catch (e) {
+    setError("shorts-error", e.message);
+  }
+}
+
+// ---------- 영상 검수 ----------
+const CHECK_ICON = { warn: "⚠", typo: "✎", info: "ⓘ" };
+
+async function runCheckup() {
+  setError("check-error", "");
+  $("btn-checkup").disabled = true;
+  $("check-wait").classList.remove("hidden");
+  const list = $("check-list");
+  list.innerHTML = "";
+  try {
+    const r = await api("POST", `/api/jobs/${state.job.id}/checkup`);
+    const c = r.counts;
+    $("check-summary").textContent = r.items.length
+      ? `꼭 볼 것 ${c.warn}개 · 오탈자 ${c.typo}개 · 참고 ${c.info}개`
+      : "문제를 찾지 못했어요. 그대로 올려도 좋아요!";
+    $("check-summary").classList.remove("hidden");
+    r.items.forEach((x) => {
+      const li = el("li", "check " + x.level);
+      li.appendChild(el("span", "icon", CHECK_ICON[x.level] || "•"));
+      li.appendChild(el("span", "", (x.scene >= 0 ? `장면 ${x.scene + 1}: ` : "") + x.text));
+      if (x.scene >= 0) {
+        const b = el("button", "ghost small", "고치러 가기");
+        b.type = "button";
+        b.onclick = () => {
+          openEdit(state.job);
+          selectScene(x.scene);
+          focusScene(x.scene);
+        };
+        li.appendChild(b);
+      }
+      list.appendChild(li);
+    });
+  } catch (e) {
+    setError("check-error", e.message);
+  } finally {
+    $("btn-checkup").disabled = false;
+    $("check-wait").classList.add("hidden");
+  }
+}
+
 // ---------- 내 프로젝트 ----------
 const PROJECT_STAGE = { loaded: "글 불러옴", ready: "대본 고치는 중", done: "영상 완성", error: "멈춤·오류" };
 
@@ -1984,6 +2168,10 @@ $("btn-rewrite").onclick = () => {
   openSource(state.job);
 };
 $("btn-render").onclick = startRender;
+$("btn-yt").onclick = makeYoutube;
+$("btn-shorts-plan").onclick = planShorts;
+$("btn-shorts-render").onclick = renderShortsVideo;
+$("btn-checkup").onclick = runCheckup;
 $("btn-more-urls").onclick = () => {
   $("more-urls-box").classList.remove("hidden");
   $("btn-more-urls").classList.add("hidden");

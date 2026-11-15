@@ -75,6 +75,8 @@ def default_steps() -> Steps:
     from app.script import generate_script
     from app.ai.analyze import analyze
     from app.ai.photos import match as match_photos
+    from app.ai.shorts import plan as plan_shorts
+    from app.ai.youtube import generate as youtube_text
     from app.ai.rewrite import review, rewrite
     from app.director import direct
     from app.tts import preview, synthesize_all
@@ -83,7 +85,7 @@ def default_steps() -> Steps:
     return Steps(fetch_post=fetch_post, download_images=download_images, generate_script=generate_script,
                  synthesize_all=synthesize_all, render_video=render_video,
                  api_key=lambda: config.load_config().get("anthropic_api_key", ""),
-                 voice_preview=preview, fetch_music=fetch_audio, rewrite=rewrite, review=review, match_photos=match_photos, abort=stop_current, direct=direct, analyze=analyze,
+                 voice_preview=preview, fetch_music=fetch_audio, rewrite=rewrite, review=review, match_photos=match_photos, plan_shorts=plan_shorts, youtube_text=youtube_text, abort=stop_current, direct=direct, analyze=analyze,
                  write_script=lambda post, key, analysis, settings, voice: generate_script(
                      post, key, analysis=analysis, settings=settings, voice=voice),
                  channel_name=lambda: config.load_config().get("channel_name", ""))
@@ -124,6 +126,14 @@ class RewriteRequest(BaseModel):
     command: str = Field(default="", max_length=200)
 
 
+class ThumbText(BaseModel):
+    text: str = Field(min_length=1, max_length=40)
+
+
+class ShortsBody(BaseModel):
+    script: VideoScript
+
+
 class Rename(BaseModel):
     name: str = Field(min_length=1, max_length=80)
 
@@ -145,8 +155,12 @@ def _is_local(request: Request) -> bool:
 
 def _public(s: JobState) -> dict:
     """같은 와이파이의 기기에 보내는 상태. PC의 파일 경로(사용자 이름 포함)는 빼고 보낸다."""
-    d = s.model_dump(exclude={"video_path"})
+    d = s.model_dump(exclude={"video_path", "shorts_path"})
     d["has_video"] = bool(s.video_path)
+    d["has_shorts"] = bool(s.shorts_path) and Path(s.shorts_path).exists()
+    if d.get("shorts_script"):
+        d["shorts_script"]["scenes"] = [{k: v for k, v in sc.items() if k != "audio_path"}
+                                        for sc in d["shorts_script"]["scenes"]]
     d["is_confirmed"] = bool(s.script) and s.confirmed == fingerprint(s.script)
     d["has_thumbnail"] = bool(_thumbnail_path(s))
     if d.get("post"):
@@ -377,6 +391,41 @@ def create_app(manager: JobManager | None = None) -> FastAPI:
             title = _safe_filename(s.script.yt_title if s.script else "영상")
             headers["Content-Disposition"] = f"attachment; filename=\"video.mp4\"; filename*=UTF-8''{quote(title + '.mp4')}"
         return FileResponse(s.video_path, media_type="video/mp4", headers=headers)
+
+    @app.post("/api/jobs/{job_id}/thumbnail")
+    def remake_thumbnail(job_id: str, body: ThumbText):
+        """썸네일 문구를 바꿔 다시 만들기."""
+        return _public(manager.remake_thumbnail(job_id, body.text))
+
+    @app.post("/api/jobs/{job_id}/youtube")
+    def youtube_text(job_id: str):
+        """AI가 쓰는 유튜브 제목 후보·설명·해시태그·썸네일 문구·키워드."""
+        return manager.make_youtube(job_id)
+
+    @app.post("/api/jobs/{job_id}/shorts/plan")
+    def shorts_plan(job_id: str):
+        """쇼츠 대본 제안 (확인·수정한 뒤 만든다)."""
+        return {"script": manager.plan_shorts(job_id).model_dump(exclude={"scenes": {"__all__": {"audio_path"}}})}
+
+    @app.post("/api/jobs/{job_id}/shorts")
+    def shorts_render(job_id: str, body: ShortsBody):
+        return _public(manager.start_shorts(job_id, body.script))
+
+    @app.get("/api/jobs/{job_id}/shorts/video")
+    def shorts_video(job_id: str, download: int = 0):
+        s = manager.get(job_id)
+        if not s.shorts_path or not Path(s.shorts_path).exists():
+            return JSONResponse({"message": "아직 쇼츠가 없어요."}, status_code=404)
+        headers = {"Cache-Control": "no-cache"}
+        if download:
+            title = _safe_filename((s.script.yt_title if s.script else "영상") + "_쇼츠")
+            headers["Content-Disposition"] = f"attachment; filename=\"shorts.mp4\"; filename*=UTF-8''{quote(title + '.mp4')}"
+        return FileResponse(s.shorts_path, media_type="video/mp4", headers=headers)
+
+    @app.post("/api/jobs/{job_id}/checkup")
+    def checkup(job_id: str):
+        """영상 검수: 사진 반복·빠진 사진·자막 길이와 속도·장면 시간·글과 사진 점수 + AI 오탈자·문맥."""
+        return manager.checkup(job_id)
 
     @app.get("/api/jobs/{job_id}/thumbnail")
     def thumbnail(job_id: str, download: int = 0):
