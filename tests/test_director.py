@@ -44,12 +44,18 @@ def test_no_ai_mode_is_gone(api):
     assert c.post(f"/api/jobs/{job['id']}/free-mode", json={"mode": "auto"}).status_code in (404, 405)
 
 
-@pytest.mark.parametrize("mode,title", [("api", "제목: 테스트/글"), ("gemini", "제미나이가 쓴 제목")])
-def test_link_goes_straight_to_ai_script(api, mode, title):
+def test_link_goes_straight_to_ai_script(api):
     c, manager = api
-    job = c.post("/api/jobs", json={"url": URL, "mode": mode}).json()
+    job = c.post("/api/jobs", json={"url": URL, "mode": "api"}).json()
     s = wait_stage(manager, job["id"], "ready")          # 중간에 고르는 단계 없이 바로 대본
-    assert s.mode == mode and s.script.scenes and s.script.yt_title == title
+    assert s.mode == "api" and s.script.scenes and s.script.yt_title == "제목: 테스트/글"
+
+
+def test_gemini_is_gone(api):
+    c, manager = api
+    assert c.post("/api/jobs", json={"url": URL, "mode": "gemini"}).status_code == 400
+    assert "has_gemini_key" not in c.get("/api/info").json()
+    assert "gemini_api_key" not in c.get("/api/settings").json()
 
 
 def test_manual_from_home_loads_and_opens_empty_script(api):
@@ -67,7 +73,7 @@ def test_missing_key_message_names_the_other_ai(tmp_path, monkeypatch):
     manager = JobManager(tmp_path / "jobs", steps)
     c = TestClient(create_app(manager), base_url="http://127.0.0.1:8765", client=("127.0.0.1", 5000))
     r = c.post("/api/jobs", json={"url": URL, "mode": "api"})
-    assert r.status_code == 400 and "제미나이" in r.json()["message"] and "AI 없이" not in r.json()["message"]
+    assert r.status_code == 400 and "Claude API 키" in r.json()["message"]
     manager.stop()
 
 
@@ -102,9 +108,6 @@ def test_prompt_covers_all_controls_and_text_rule():
     for word in ("motion", "transition", "strength", "look", "caption_size", "caption_pos", "hold", "template",
                  "speed", "bgm_volume", "이미 반영됨", "지어내지"):
         assert word in director.SYSTEM
-    scene = director.SCHEMA["properties"]["scenes"]["items"]
-    assert "bw" in scene["properties"]["look"]["enum"] and "keep" in scene["properties"]["motion"]["enum"]
-    assert set(scene["required"]) >= {"index", "text", "hold"}
 
 
 # ---------- AI의 답을 반영 ----------
@@ -160,27 +163,11 @@ def test_direct_with_claude_sends_request_and_format():
             scenes=[SceneDirection(index=0, text="장면 0 글", motion="zoom_out", strength="strong")]))
 
     client = SimpleNamespace(beta=SimpleNamespace(messages=SimpleNamespace(parse=parse)))
-    out, _ = direct(_script("넓게 보여 주면서 역동적으로"), RenderOptions(), "api", "k", client=client)
+    out, _ = direct(_script("넓게 보여 주면서 역동적으로"), RenderOptions(), "k", client=client)
     assert (out.scenes[0].motion, out.scenes[0].strength) == ("zoom_out", "strong")
     assert seen["output_format"] is Direction and seen["system"] == director.SYSTEM
-    assert "넓게 보여 주면서 역동적으로" in seen["messages"][0]["content"] and seen["model"] == "claude-opus-5-5"
-
-
-def test_direct_with_gemini_uses_schema():
-    seen = {}
-
-    def gen(*, model, contents, config):
-        seen.update(contents=contents, config=config)
-        return SimpleNamespace(text=json.dumps({"scenes": [
-            {"index": 0, "text": "장면 0 글", "motion": "keep", "transition": "circle", "strength": "keep",
-             "look": "warm", "caption_size": "keep", "caption_pos": "top", "hold": -1}],
-            "template": "keep", "speed": "keep", "bgm_volume": -1}, ensure_ascii=False))
-
-    client = SimpleNamespace(models=SimpleNamespace(generate_content=gen))
-    out, opts = direct(_script("따뜻하게, 자막은 위에"), RenderOptions(), "gemini", "k", client=client)
-    sc = out.scenes[0]
-    assert (sc.look, sc.caption_pos, sc.transition, sc.hold) == ("warm", "top", "circle", 0.0)
-    assert seen["config"].response_json_schema is director.SCHEMA and opts == RenderOptions()
+    assert "넓게 보여 주면서 역동적으로" in seen["messages"][0]["content"]
+    assert seen["model"] == "claude-sonnet-5-5"                     # 연출은 '문단 고쳐 쓰기·연출' 작업 모델
 
 
 def test_direct_retries_when_answer_misses_most_scenes():
@@ -192,7 +179,7 @@ def test_direct_retries_when_answer_misses_most_scenes():
         return SimpleNamespace(stop_reason="end_turn", parsed_output=answers.pop(0))
 
     client = SimpleNamespace(beta=SimpleNamespace(messages=SimpleNamespace(parse=parse)))
-    direct(_script("a", "b", "c"), RenderOptions(), "api", "k", client=client)
+    direct(_script("a", "b", "c"), RenderOptions(), "k", client=client)
     assert len(calls) == 2
 
 
@@ -210,8 +197,8 @@ def test_render_runs_director_first_and_keeps_result(api):
     c, manager = api
     calls = []
 
-    def fake_direct(script, options, engine, key):
-        calls.append((engine, key, script.scenes[0].direction))
+    def fake_direct(script, options, key):
+        calls.append((key, script.scenes[0].direction))
         return apply(script, options, Direction(scenes=[SceneDirection(index=0, text="AI가 줄인 글", look="bw")],
                                                 template="mood"))
 
@@ -222,7 +209,7 @@ def test_render_runs_director_first_and_keeps_result(api):
     job_id = _ready_with(c, manager, direction="흑백으로, 더 짧게")
     c.post(f"/api/jobs/{job_id}/render")
     s = wait_stage(manager, job_id, "done")
-    assert calls == [("api", "sk-ant-test1234", "흑백으로, 더 짧게")]
+    assert calls == [("sk-ant-test1234", "흑백으로, 더 짧게")]
     assert spoken == ["AI가 줄인 글"]                              # 성우는 AI가 고친 글을 읽음
     assert (s.script.scenes[0].look, s.script.scenes[0].text, s.options.template) == ("bw", "AI가 줄인 글", "mood")
     c.post(f"/api/jobs/{job_id}/render")                          # 요청을 안 고치고 다시 만들면 AI를 또 부르지 않음
@@ -236,22 +223,6 @@ def test_render_without_requests_never_calls_ai(api):
     job_id = _ready_with(c, manager)
     c.post(f"/api/jobs/{job_id}/render")
     wait_stage(manager, job_id, "done")
-
-
-def test_director_uses_the_ai_that_wrote_the_script_or_any_key(api):
-    c, manager = api
-    engines = []
-    manager.steps.direct = lambda script, options, engine, key: (engines.append((engine, key)), apply(
-        script, options, Direction(scenes=[])))[1]
-    job_id = _ready_with(c, manager, mode="gemini", direction="크게")
-    c.post(f"/api/jobs/{job_id}/render")
-    wait_stage(manager, job_id, "done")
-    manager.steps.gemini_key = lambda: ""                          # 직접 작성 + Claude 키만 있음
-    job_id = _ready_with(c, manager, mode="api", direction="크게")
-    manager._set(job_id, mode="manual")
-    c.post(f"/api/jobs/{job_id}/render")
-    wait_stage(manager, job_id, "done")
-    assert engines == [("gemini", "AIza-test"), ("api", "sk-ant-test1234")]
 
 
 def test_director_failure_stops_render_with_clear_message(api):
@@ -270,7 +241,6 @@ def test_no_key_at_all_asks_to_add_one(api):
     job_id = _ready_with(c, manager, direction="크게")
     manager.steps.direct = lambda *a: (_ for _ in ()).throw(AssertionError("키가 없으면 부르면 안 됨"))
     manager.steps.api_key = lambda: ""
-    manager.steps.gemini_key = lambda: ""
     c.post(f"/api/jobs/{job_id}/render")
     assert "키" in wait_stage(manager, job_id, "error").message
 

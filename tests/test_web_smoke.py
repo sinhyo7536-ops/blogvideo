@@ -211,17 +211,6 @@ def test_no_claude_paste_option(live_server, browser):
     assert page.locator("text=붙여넣기").count() == 0
 
 
-def test_gemini_key_and_mode_in_ui(live_server, browser):
-    page = browser.new_page(viewport={"width": 1280, "height": 800})
-    page.goto(live_server)
-    page.wait_for_selector("#view-home >> text=제미나이(무료)")
-    page.click("#open-settings")
-    page.fill("#gemini-key", "AIzaSyUI-TEST-4321")
-    page.click("#btn-save-gemini")
-    page.wait_for_selector("text=지금 저장된 Gemini 키: AIzaSy…4321")
-    shot(page, "d8_settings_gemini")
-
-
 def test_quality_choice_is_sent(live_server, browser):
     page = browser.new_page(viewport={"width": 390, "height": 844})
     _to_edit(page, live_server)
@@ -671,7 +660,7 @@ def test_home_offers_two_ais_and_small_manual_button(live_server, browser):
     page = browser.new_page(viewport={"width": 390, "height": 844})
     page.goto(live_server)
     page.wait_for_selector("#btn-load")
-    assert page.locator('#view-home .seg[data-name="mode"] button').all_inner_texts() == ["클로드(유료)", "제미나이(무료)"]
+    assert page.locator('#view-home .seg[data-name="mode"]').count() == 0 and page.locator("text=제미나이").count() == 0
     assert page.inner_text("#btn-load") == "AI로 대본 만들기" and page.is_visible("#btn-home-manual")
     assert page.locator("text=AI 없이(무료)").count() == 0 and page.locator("#btn-free-auto").count() == 0
     assert "사진" in page.inner_text("#view-home .mode-help")
@@ -681,14 +670,12 @@ def test_home_offers_two_ais_and_small_manual_button(live_server, browser):
     assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
 
 
-@pytest.mark.parametrize("mode,title", [("api", "제목: 테스트/글"), ("gemini", "제미나이가 쓴 제목")])
-def test_link_then_ai_writes_without_extra_step(live_server, browser, mode, title):
+def test_link_then_ai_writes_without_extra_step(live_server, browser):
     page = browser.new_page(viewport={"width": 1280, "height": 800})
     _open(page, live_server)
-    page.click(f'#view-home .seg[data-name="mode"] button[data-value="{mode}"]')
     page.click("#btn-load")
     page.wait_for_selector(".scene-card", timeout=10000)                  # 고르는 화면 없이 바로 대본
-    assert page.input_value("#yt-title") == title and _job(page)["mode"] == mode
+    assert page.input_value("#yt-title") == "제목: 테스트/글" and _job(page)["mode"] == "api"
 
 
 def test_api_error_has_no_free_fallback(live_server_api_fails, browser):
@@ -705,8 +692,8 @@ def test_direction_requests_are_sent_and_result_shown(tmp_path, monkeypatch, bro
     m = _start(tmp_path, monkeypatch)
     seen = []
 
-    def fake_direct(script, options, engine, key):
-        seen.append({"overall": script.direction, "scene": script.scenes[0].direction, "engine": engine})
+    def fake_direct(script, options, key):
+        seen.append({"overall": script.direction, "scene": script.scenes[0].direction, "key": key})
         return apply(script, options, Direction(
             scenes=[SceneDirection(index=0, text="AI가 짧게 고친 자막", look="warm", caption_size="large", hold=2,
                                    motion="zoom_out", strength="subtle")], template="mood"))
@@ -723,7 +710,7 @@ def test_direction_requests_are_sent_and_result_shown(tmp_path, monkeypatch, bro
         page.click("button:has-text('영상 만들기')")
         page.wait_for_selector("#view-result:not(.hidden)", timeout=10000)
         assert seen == [{"overall": "전체적으로 잔잔하게", "scene": "따뜻하게, 자막 크게, 오래 보여 줘. 더 짧게 써 줘",
-                         "engine": "api"}]
+                         "key": "sk-ant-test1234"}]
         page.click("#btn-reedit")                                          # AI가 정한 연출이 화면에 보임
         page.wait_for_selector("#view-edit:not(.hidden)")
         assert page.input_value(".scene-card textarea:not(.direction) >> nth=0") == "AI가 짧게 고친 자막"
@@ -749,3 +736,36 @@ def test_duplicate_keeps_direction_and_new_scene_has_empty_one(live_server, brow
     page.click(".scene-card >> nth=0 >> text=복제")
     page.click("#btn-add-scene")
     assert page.evaluate("state.script.scenes.map(s => s.direction || '')") == ["흑백으로", "흑백으로", ""]
+
+
+# ---------- 2단계: AI 모델 설정 화면 ----------
+def test_model_settings_screen(live_server, browser, monkeypatch):
+    from app.ai import models as ai
+
+    monkeypatch.setattr(ai, "check", lambda key: [
+        {"model": "claude-opus-5-5", "label": "Opus 5.5 · 가장 좋은 품질", "tasks": ["여행 대본 쓰기"], "ok": True,
+         "message": "사용할 수 있어요"},
+        {"model": "claude-haiku-5-5", "label": "Haiku 5.5 · 빠르고 아주 저렴", "tasks": ["맞춤법·영상 검수"], "ok": False,
+         "message": "이 키로는 이 모델을 쓸 수 없어요. 다른 모델을 골라 주세요."}])
+    page = browser.new_page(viewport={"width": 390, "height": 844})
+    page.goto(live_server)
+    page.click("#open-settings")
+    page.wait_for_selector("#model-list select")
+    assert page.locator("#model-list select").count() == 6
+    assert page.input_value('#model-list select[data-task="script"]') == "claude-opus-5-5"
+    assert page.input_value('#model-list select[data-task="review"]') == "claude-haiku-5-5"
+    assert "추천" in page.inner_text('#model-list select[data-task="photos"] option[value="claude-sonnet-5-5"]')
+    assert page.locator("text=제미나이").count() == 0 and page.locator("#gemini-key").count() == 0
+    assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+    page.select_option('#model-list select[data-task="photos"]', "claude-opus-5-5")
+    page.click("#btn-save-models")
+    page.wait_for_selector("#models-ok:not(.hidden)")
+    page.click("#btn-check-models")
+    page.wait_for_selector("#model-check li >> nth=1")
+    items = page.locator("#model-check li").all_inner_texts()
+    assert items[0].startswith("✓ Opus 5.5") and items[1].startswith("✕ Haiku 5.5") and "다른 모델" in items[1]
+    shot(page, "m9_models")
+    page.reload()
+    page.click("#open-settings")
+    page.wait_for_selector("#model-list select")
+    assert page.input_value('#model-list select[data-task="photos"]') == "claude-opus-5-5"

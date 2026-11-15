@@ -15,7 +15,7 @@
 | `app/script.py` | Claude API(`claude-opus-5-5`, 구조화 출력)로 장면 대본 + 유튜브 제목/설명/태그 생성 |
 | `app/director.py` | 사용자가 말로 적은 연출 요청을 AI가 장면 설정(움직임·전환·색감·자막·머무는 시간·자막 글)으로 바꾼다 |
 | `app/autoscript.py` | 블로그 제목에서 유튜브 태그 뽑기 (직접 작성용) |
-| `app/gemini.py` | Gemini 무료 API로 장면 대본 생성 (Claude와 같은 프롬프트·형식) |
+| `app/ai/models.py` | 작업별 Claude 모델 설정(대본·분석·사진·재작성·검수·유튜브 문구)과 연결 확인 |
 | `app/ytmusic.py` | 유튜브 링크의 소리를 배경음악 MP3로 가져오기 (yt-dlp) |
 | `app/visuals.py` | 영상 스타일 3종(깔끔/감성/브이로그), 제목 띠·장소 이름표, 시작·끝 화면, 썸네일 |
 | `app/tts.py` | Edge TTS로 장면별 내레이션 (`ko-KR-SunHiNeural` / `ko-KR-InJoonNeural`) |

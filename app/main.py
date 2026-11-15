@@ -22,7 +22,7 @@ from app.paths import jobs_dir, music_dirs, resource_path, user_music_dir
 from app.scraper.naver import validate_url
 
 PORT = 8765
-NO_KEY = "Claude API 키가 없어요. 설정에서 키를 넣거나, 제미나이(무료)를 골라 주세요."
+NO_KEY = "Claude API 키가 없어요. 설정에서 키를 넣어 주세요. (키 없이 쓰려면 \"AI 없이 직접 작성하기\")"
 PC_ONLY = "설정은 PC에서만 바꿀 수 있어요."
 LOCAL_ONLY = "이 프로그램은 설치된 PC에서만 쓸 수 있어요."
 _LOCAL_HOSTS = {"127.0.0.1", "localhost", "[::1]"}
@@ -71,26 +71,24 @@ def default_steps() -> Steps:
     from app.scraper.naver import download_images, fetch_post
     from app.script import generate_script
     from app.director import direct
-    from app.gemini import generate_script_gemini
     from app.tts import preview, synthesize_all
     from app.ytmusic import fetch_audio
 
     return Steps(fetch_post=fetch_post, download_images=download_images, generate_script=generate_script,
                  synthesize_all=synthesize_all, render_video=render_video,
                  api_key=lambda: config.load_config().get("anthropic_api_key", ""),
-                 gemini_script=generate_script_gemini, voice_preview=preview, fetch_music=fetch_audio, abort=stop_current, direct=direct,
-                 channel_name=lambda: config.load_config().get("channel_name", ""),
-                 gemini_key=lambda: config.load_config().get("gemini_api_key", ""))
+                 voice_preview=preview, fetch_music=fetch_audio, abort=stop_current, direct=direct,
+                 channel_name=lambda: config.load_config().get("channel_name", ""))
 
 
 class CreateJob(BaseModel):
     url: str
     options: RenderOptions = RenderOptions()
-    mode: Literal["api", "gemini", "load", "manual"] = "api"   # load: 글·사진만, manual: 불러온 뒤 바로 직접 작성
+    mode: Literal["api", "load", "manual"] = "api"   # load: 글·사진만, manual: 불러온 뒤 바로 직접 작성
 
 
 class WriteMode(BaseModel):
-    mode: Literal["api", "gemini", "manual"]
+    mode: Literal["api", "manual"]
 
 
 class VoicePreview(BaseModel):
@@ -109,7 +107,7 @@ class UpdateScript(BaseModel):
 
 class Settings(BaseModel):
     anthropic_api_key: str | None = None
-    gemini_api_key: str | None = None
+    models: dict[str, str] | None = None   # {작업: 모델 ID}
     channel_name: str | None = None
 
 
@@ -192,10 +190,6 @@ def create_app(manager: JobManager | None = None) -> FastAPI:
     def need_key(mode: str) -> None:
         if mode == "api" and not manager.steps.api_key():
             raise UserError(NO_KEY)
-        if mode == "gemini" and not manager.steps.gemini_key():
-            from app.gemini import NO_KEY as GEMINI_NO_KEY
-
-            raise UserError(GEMINI_NO_KEY)
 
     def pc_only(request: Request):
         if not _is_local(request):
@@ -220,7 +214,6 @@ def create_app(manager: JobManager | None = None) -> FastAPI:
     def info(request: Request):
         cfg = config.load_config()
         return {"has_api_key": bool(cfg.get("anthropic_api_key")),
-                "has_gemini_key": bool(cfg.get("gemini_api_key")),
                 "is_local": _is_local(request)}
 
     @app.post("/api/jobs")
@@ -231,7 +224,7 @@ def create_app(manager: JobManager | None = None) -> FastAPI:
 
     @app.post("/api/jobs/{job_id}/write")
     def write(job_id: str, body: WriteMode):
-        """불러온 글로 대본 만들기: AI(api/gemini) 또는 직접 작성(manual)."""
+        """불러온 글로 대본 만들기: Claude(api) 또는 직접 작성(manual)."""
         need_key(body.mode)
         return _public(manager.write(job_id, body.mode))
 
@@ -382,8 +375,11 @@ def create_app(manager: JobManager | None = None) -> FastAPI:
     def get_settings(request: Request):
         if (r := pc_only(request)) is not None:
             return r
+        from app.ai import models as ai_models
+
         cfg = config.load_config()
-        return {**{k: _mask(cfg.get(k, "")) for k in config.SECRET_KEYS}, "channel_name": cfg.get("channel_name", "")}
+        return {**{k: _mask(cfg.get(k, "")) for k in config.SECRET_KEYS}, "channel_name": cfg.get("channel_name", ""),
+                "models": ai_models.catalog()}
 
     @app.put("/api/settings")
     def put_settings(request: Request, body: Settings):
@@ -397,6 +393,20 @@ def create_app(manager: JobManager | None = None) -> FastAPI:
         if body.channel_name is not None:  # 빈 칸으로 저장하면 지움(블로그 이름을 대신 씀)
             data["channel_name"] = " ".join(body.channel_name.split())[:40]
         config.save_config(data)
-        return {**{k: _mask(data.get(k, "")) for k in config.SECRET_KEYS}, "channel_name": data.get("channel_name", "")}
+        from app.ai import models as ai_models
+
+        if body.models is not None:
+            ai_models.save(body.models)
+        return {**{k: _mask(data.get(k, "")) for k in config.SECRET_KEYS}, "channel_name": data.get("channel_name", ""),
+                "models": ai_models.catalog()}
+
+    @app.post("/api/settings/check-models")
+    def check_models(request: Request):
+        """설정된 Claude 모델마다 짧게 물어 연결을 확인한다 (아주 적은 비용이 든다)."""
+        if (r := pc_only(request)) is not None:
+            return r
+        from app.ai import models as ai_models
+
+        return ai_models.check(manager.steps.api_key())
 
     return app

@@ -37,40 +37,6 @@ class Direction(BaseModel):
     bgm_volume: float = -1.0    # -1 = 그대로
 
 
-def _enum(values) -> dict:
-    return {"type": "string", "enum": [KEEP, "auto", *values]}
-
-
-# Gemini가 잘 받는 단순한 형식 ($ref/$defs 없이 펼친 형태)
-SCHEMA = {
-    "type": "object",
-    "properties": {
-        "scenes": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "index": {"type": "integer"},
-                    "text": {"type": "string"},
-                    "motion": _enum(MOTIONS),
-                    "transition": _enum(TRANSITIONS),
-                    "strength": _enum(STRENGTHS),
-                    "look": _enum(LOOKS),
-                    "caption_size": _enum(CAPTION_SIZES),
-                    "caption_pos": _enum(CAPTION_POSITIONS),
-                    "hold": {"type": "number"},
-                },
-                "required": ["index", "text", "motion", "transition", "strength", "look", "caption_size",
-                             "caption_pos", "hold"],
-            },
-        },
-        "template": {"type": "string", "enum": [KEEP, *TEMPLATES]},
-        "speed": {"type": "string", "enum": [KEEP, *SPEEDS]},
-        "bgm_volume": {"type": "number"},
-    },
-    "required": ["scenes", "template", "speed", "bgm_volume"],
-}
-
 SYSTEM = f"""당신은 여행 영상의 연출 감독입니다. 사용자가 장면마다 적은 "연출 요청"과 영상 전체에 대한 요청을 읽고,
 프로그램이 이해하는 설정 값으로 바꿉니다. 모든 장면에 대해 하나씩, index를 그대로 돌려줍니다.
 
@@ -170,21 +136,15 @@ def apply(script: VideoScript, options: RenderOptions, d: Direction) -> tuple[Vi
     return script.model_copy(update={"scenes": scenes, "direction_done": overall}), new_options
 
 
-def direct(script: VideoScript, options: RenderOptions, engine: str, api_key: str,
+def direct(script: VideoScript, options: RenderOptions, api_key: str,
            client=None) -> tuple[VideoScript, RenderOptions]:
-    """engine: "api"(Claude) 또는 "gemini"."""
     request = build_request(script, options)
     n = len(script.scenes)
 
     def accept(d: Direction) -> bool:
         return len({x.index for x in d.scenes if 0 <= x.index < n}) >= max(1, n // 2)
 
-    if engine == "gemini":
-        from app.gemini import ask_gemini
+    from app.script import ask_claude
 
-        answer = ask_gemini(SYSTEM, request, SCHEMA, Direction, api_key, client, accept=accept)
-    else:
-        from app.script import ask_claude
-
-        answer = ask_claude(SYSTEM, request, Direction, api_key, client, accept=accept)
+    answer = ask_claude(SYSTEM, request, Direction, api_key, client, accept=accept, task="rewrite")
     return apply(script, options, answer)

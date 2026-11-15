@@ -19,7 +19,6 @@ dependencies = [
   "pydantic>=2.6",
   "python-multipart>=0.0.9",
   "truststore>=0.10",
-  "google-genai>=3.2",
   "yt-dlp>=2026.10",
 ]
 

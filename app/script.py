@@ -12,7 +12,6 @@ from pydantic import BaseModel
 from app.errors import UserError
 from app.models import MOTIONS, TRANSITIONS, BlogPost, Scene, VideoScript
 
-MODEL = "claude-opus-5-5"
 KEY_MSG = "설정에서 API 키를 확인해 주세요."
 OFFLINE = "인터넷 연결을 확인해 주세요."
 FAILED = "대본을 만들지 못했어요. 다시 시도해 주세요."
@@ -153,8 +152,13 @@ def _claude_content(post: BlogPost):
     return content
 
 
-def ask_claude(system: str, content, output_format, api_key: str, client=None, accept=None):
-    """Claude에게 물어 정해진 형식(output_format)의 답을 받는다. accept(답)이 거짓이면 한 번 더 묻는다."""
+def ask_claude(system: str, content, output_format, api_key: str, client=None, accept=None, task: str = "script"):
+    """Claude에게 물어 정해진 형식(output_format)의 답을 받는다. accept(답)이 거짓이면 한 번 더 묻는다.
+    task: 작업 이름 (app.ai.models.TASKS). 작업마다 설정된 모델·생각 깊이를 쓴다."""
+    from app.ai.models import effort_for, model_for, supports_fallback
+
+    model = model_for(task)
+    extra = {"betas": ["server-side-fallback-2026-07-01"], "fallbacks": "default"} if supports_fallback(model) else {}
     if client is None:
         if not api_key:
             raise UserError(KEY_MSG)
@@ -164,11 +168,10 @@ def ask_claude(system: str, content, output_format, api_key: str, client=None, a
         busy = False
         try:
             resp = client.beta.messages.parse(
-                model=MODEL,
+                model=model,
                 max_tokens=16000,
-                output_config={"effort": "medium"},
-                betas=["server-side-fallback-2026-07-01"],
-                fallbacks="default",
+                output_config={"effort": effort_for(task)},
+                **extra,
                 system=system,
                 messages=[{"role": "user", "content": content}],
                 output_format=output_format,

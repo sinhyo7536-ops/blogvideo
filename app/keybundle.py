@@ -91,6 +91,10 @@ def import_pending_key() -> bool:
         log.warning("ignored invalid key import file")
         f.unlink(missing_ok=True)
         return False
+    keys = {k: v for k, v in keys.items() if k in config.SECRET_KEYS}   # 예전 설치 파일의 제미나이 키 등은 버린다
+    if not keys:
+        f.unlink(missing_ok=True)
+        return False
     data = config.load_config()
     data.update(keys)
     config.save_config(data)

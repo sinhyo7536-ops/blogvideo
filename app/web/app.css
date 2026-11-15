@@ -217,3 +217,16 @@ button.photo:hover, button.photo:focus-visible { border-color: var(--primary); }
 .applied span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .applied button { flex: none; min-height: 32px; padding: 0 .6rem; font-size: .8rem; background: transparent; }
 #btn-home-manual { display: block; margin: 1rem auto 0; }
+
+/* AI 모델 설정 */
+.model-list { display: grid; gap: .7rem; margin: .6rem 0; }
+.model-row { display: grid; gap: .35rem; border: 1px solid var(--line); border-radius: 12px; padding: .7rem; }
+.model-row span { display: grid; gap: .15rem; }
+.model-row select { min-width: 0; }
+.model-check { list-style: none; padding: 0; margin: .6rem 0; display: grid; gap: .3rem; }
+.model-check li { overflow-wrap: anywhere; }
+.model-check li.ok { color: #1a7f37; }
+.model-check li.bad { color: #c62828; }
+@media (min-width: 720px) {
+  .model-row { grid-template-columns: 1fr 1fr; align-items: center; }
+}

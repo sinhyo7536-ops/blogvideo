@@ -27,14 +27,7 @@
         <input id="url" type="url" inputmode="url" autocomplete="off" placeholder="https://blog.naver.com/...">
       </label>
 
-      <fieldset class="field">
-        <legend>대본을 쓸 AI</legend>
-        <div class="seg" data-name="mode">
-          <button type="button" data-value="api" class="on">클로드(유료)</button>
-          <button type="button" data-value="gemini">제미나이(무료)</button>
-        </div>
-        <p class="muted mode-help"></p>
-      </fieldset>
+      <p class="muted mode-help"></p>
 
       <p class="error-text hidden" id="home-error" role="alert"></p>
       <button type="button" class="primary big" id="btn-load">AI로 대본 만들기</button>
@@ -57,10 +50,6 @@
         <div class="choice-card">
           <h3>AI로 대본 만들기</h3>
           <p class="muted">AI가 글과 사진을 보고 장면을 나누고, 장면에 맞는 사진·자막·움직임·전환을 골라 줘요. 만든 뒤에 고칠 수 있어요.</p>
-          <div class="seg" data-name="mode">
-            <button type="button" data-value="api" class="on">클로드(유료)</button>
-            <button type="button" data-value="gemini">제미나이(무료)</button>
-          </div>
           <p class="muted mode-help"></p>
           <button type="button" class="primary big" id="btn-recommend">AI로 대본 만들기</button>
         </div>
@@ -242,14 +231,15 @@
       <button type="button" class="primary" id="btn-save-key">저장</button>
       <p class="ok-text hidden" id="settings-ok">저장했어요</p>
 
-      <label class="field">
-        <span>제미나이(Gemini) API 키 (무료)</span>
-        <input id="gemini-key" type="password" autocomplete="off" placeholder="AIza...">
-        <small class="muted" id="gemini-key-current"></small>
-        <small class="muted">aistudio.google.com/apikey 에서 무료로 발급받을 수 있어요. 하루 사용 횟수 제한이 있어요.</small>
-      </label>
-      <button type="button" class="primary" id="btn-save-gemini">제미나이 키 저장</button>
-      <p class="ok-text hidden" id="gemini-ok">저장했어요</p>
+      <h2>AI 모델</h2>
+      <p class="muted">작업마다 쓸 Claude 모델을 고를 수 있어요. 처음 값은 품질과 비용을 함께 생각해 정해 둔 추천 값이에요. 가격은 100만 토큰당 입력/출력이에요.</p>
+      <div id="model-list" class="model-list"></div>
+      <div class="row">
+        <button type="button" class="primary" id="btn-save-models">모델 저장</button>
+        <button type="button" class="ghost" id="btn-check-models">연결 확인</button>
+      </div>
+      <p class="ok-text hidden" id="models-ok">저장했어요</p>
+      <ul class="model-check hidden" id="model-check"></ul>
 
       <h2>채널 이름</h2>
       <label class="field">
@@ -267,7 +257,7 @@
       <p class="error-text hidden" id="settings-error" role="alert"></p>
 
       <h2>지인용 설치 파일 만들기</h2>
-      <p class="muted">지금 저장된 API 키(Claude·Gemini)를 설치 파일에 넣어 줘요. 이 파일로 설치하면 키를 따로 넣지 않아도 바로 쓸 수 있어요.</p>
+      <p class="muted">지금 저장된 Claude API 키를 설치 파일에 넣어 줘요. 이 파일로 설치하면 키를 따로 넣지 않아도 바로 쓸 수 있어요.</p>
       <ol class="muted steps">
         <li>받아 둔 <b>BlogVideo-Setup.exe</b> 를 고르세요.</li>
         <li>"키 넣은 설치 파일 만들기"를 누르면 <b>블로그영상변환기_설치_키포함.exe</b> 가 저장돼요.</li>

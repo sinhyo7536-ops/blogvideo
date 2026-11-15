@@ -136,7 +136,7 @@ class RenderOptions(BaseModel):
 
 Stage = Literal["queued", "scraping", "loaded", "scripting", "ready", "directing", "tts", "rendering", "done", "error"]
 # load: 글·사진만 불러온 상태(아직 작성 방법을 고르지 않음), manual: 직접 작성
-# auto("AI 없이")는 없앴다. 예전에 저장된 작업을 열 수 있게 값만 남겨 둔다.
+# auto("AI 없이")와 gemini(제미나이)는 없앴다. 예전에 저장된 작업을 열 수 있게 값만 남겨 둔다.
 ScriptMode = Literal["api", "auto", "gemini", "load", "manual"]
 
 

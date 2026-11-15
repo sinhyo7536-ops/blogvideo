@@ -4,8 +4,7 @@ const $ = (id) => document.getElementById(id);
 const VIEWS = ["home", "source", "edit", "progress", "result", "error", "settings"];
 const MODE_KEY = "blogvideo.mode";
 const MODE_HELP = {
-  api: "클로드가 글과 사진을 직접 보고 대본을 써요. 영상 1개당 약 100~300원이 들어요.",
-  gemini: "제미나이가 글과 사진을 직접 보고 대본을 써요. 무료지만 하루 사용 횟수 제한이 있어요.",
+  api: "Claude가 글과 사진을 직접 보고 대본을 써요. 영상 1개당 약 100~300원이 들어요.",
 };
 const LOOK_LABEL = { warm: "따뜻한 색감", cool: "시원한 색감", bw: "흑백", vivid: "선명한 색감", soft: "부드러운 색감" };
 const CAPTION_SIZE_LABEL = { large: "자막 크게", small: "자막 작게" };
@@ -123,12 +122,9 @@ async function loadInfo() {
   state.info = await api("GET", "/api/info");
   $("open-settings").classList.toggle("hidden", !state.info.is_local);
   const notice = $("key-notice");
-  const fallback = state.info.has_api_key ? "api" : state.info.has_gemini_key ? "gemini" : "api";
-  const saved = localStorage.getItem(MODE_KEY);
-  const usable = (saved === "api" && state.info.has_api_key) || (saved === "gemini" && state.info.has_gemini_key);
-  setMode(usable ? saved : fallback);
-  if (!state.info.has_api_key && !state.info.has_gemini_key) {
-    notice.textContent = "AI 키가 아직 없어요. 설정에서 클로드나 제미나이(무료) 키를 넣어 주세요.";
+  setMode("api");
+  if (!state.info.has_api_key) {
+    notice.textContent = "Claude API 키가 아직 없어요. 설정에서 키를 넣어 주세요.";
     if (state.info.is_local) {
       const b = document.createElement("button");
       b.type = "button";
@@ -333,7 +329,7 @@ async function cancelJob() {
   }
 }
 
-// mode: api·gemini = AI가 바로 대본을 씀, manual = 글·사진만 불러와 직접 작성
+// mode: api = Claude가 바로 대본을 씀, manual = 글·사진만 불러와 직접 작성
 async function startLoad(mode) {
   setError("home-error", "");
   const url = $("url").value.trim();
@@ -863,15 +859,15 @@ async function openSettings() {
   try {
     const s = await api("GET", "/api/settings");
     $("api-key-current").textContent = s.anthropic_api_key ? `지금 저장된 키: ${s.anthropic_api_key}` : "아직 저장된 키가 없어요.";
-    $("gemini-key-current").textContent = s.gemini_api_key ? `지금 저장된 Gemini 키: ${s.gemini_api_key}` : "아직 저장된 Gemini 키가 없어요.";
+    renderModels(s.models);
     $("channel-name").value = s.channel_name || "";
   } catch (e) {
     setError("settings-error", e.message);
   }
   $("api-key").value = "";
   $("channel-ok").classList.add("hidden");
-  $("gemini-key").value = "";
-  $("gemini-ok").classList.add("hidden");
+  $("models-ok").classList.add("hidden");
+  $("model-check").classList.add("hidden");
   show("settings");
 }
 
@@ -901,18 +897,74 @@ async function saveChannelName() {
   }
 }
 
-async function saveGeminiKey() {
+// ---------- AI 모델 ----------
+function renderModels(m) {
+  state.models = m;
+  const list = $("model-list");
+  list.innerHTML = "";
+  m.tasks.forEach((t) => {
+    const row = document.createElement("label");
+    row.className = "model-row";
+    const name = document.createElement("span");
+    name.innerHTML = "";
+    const b = document.createElement("b");
+    b.textContent = t.label;
+    const help = document.createElement("small");
+    help.className = "muted";
+    help.textContent = t.help;
+    name.append(b, help);
+    const sel = document.createElement("select");
+    sel.dataset.task = t.key;
+    m.choices.forEach((c) => {
+      const label = `${c.label} (${c.price})` + (c.id === t.default ? " · 추천" : "");
+      sel.appendChild(new Option(label, c.id));
+    });
+    sel.value = m.current[t.key];
+    sel.setAttribute("aria-label", `${t.label} 모델`);
+    row.append(name, sel);
+    list.appendChild(row);
+  });
+}
+
+function chosenModels() {
+  const out = {};
+  document.querySelectorAll("#model-list select").forEach((s) => { out[s.dataset.task] = s.value; });
+  return out;
+}
+
+async function saveModels() {
   setError("settings-error", "");
-  const key = $("gemini-key").value.trim();
-  if (!key) return setError("settings-error", "Gemini API 키를 입력해 주세요.");
   try {
-    const s = await api("PUT", "/api/settings", { gemini_api_key: key });
-    $("gemini-key").value = "";
-    $("gemini-key-current").textContent = `지금 저장된 Gemini 키: ${s.gemini_api_key}`;
-    $("gemini-ok").classList.remove("hidden");
-    await loadInfo();
+    const s = await api("PUT", "/api/settings", { models: chosenModels() });
+    renderModels(s.models);
+    $("models-ok").classList.remove("hidden");
   } catch (e) {
     setError("settings-error", e.message);
+  }
+}
+
+async function checkModels() {
+  setError("settings-error", "");
+  const btn = $("btn-check-models");
+  const out = $("model-check");
+  btn.disabled = true;
+  btn.textContent = "확인하는 중…";
+  out.innerHTML = "";
+  try {
+    await api("PUT", "/api/settings", { models: chosenModels() });   // 고른 그대로 확인
+    const results = await api("POST", "/api/settings/check-models");
+    results.forEach((r) => {
+      const li = document.createElement("li");
+      li.className = r.ok ? "ok" : "bad";
+      li.textContent = `${r.ok ? "✓" : "✕"} ${r.label} — ${r.message} (쓰는 곳: ${r.tasks.join(", ")})`;
+      out.appendChild(li);
+    });
+    out.classList.remove("hidden");
+  } catch (e) {
+    setError("settings-error", e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "연결 확인";
   }
 }
 
@@ -1003,10 +1055,10 @@ $("voice").addEventListener("change", () => { $("voice-audio").pause(); });
 document.querySelector('#view-edit .seg[data-name="speed"]').addEventListener("click", () => updateSummary());
 ["opt-intro", "opt-outro"].forEach((id) => $(id).addEventListener("change", () => updateSummary()));
 $("btn-cancel").onclick = cancelJob;
-$("btn-load").onclick = () => startLoad(segValue("mode") || "api");
+$("btn-load").onclick = () => startLoad("api");
 $("btn-home-manual").onclick = () => startLoad("manual");
-$("url").addEventListener("keydown", (e) => { if (e.key === "Enter") startLoad(segValue("mode") || "api"); });
-$("btn-recommend").onclick = () => writeScript(segValue("mode") || "api");
+$("url").addEventListener("keydown", (e) => { if (e.key === "Enter") startLoad("api"); });
+$("btn-recommend").onclick = () => writeScript("api");
 $("btn-manual").onclick = () => writeScript("manual");
 $("btn-source-back").onclick = () => goHome(true);
 $("btn-rewrite").onclick = () => {
@@ -1032,7 +1084,8 @@ $("btn-save-key").onclick = saveKey;
 $("music-file").addEventListener("change", uploadMusic);
 $("btn-settings-back").onclick = leaveSettings;
 $("btn-keyed").onclick = makeKeyedInstaller;
-$("btn-save-gemini").onclick = saveGeminiKey;
+$("btn-save-models").onclick = saveModels;
+$("btn-check-models").onclick = checkModels;
 $("btn-save-channel").onclick = saveChannelName;
 $("picker-close").onclick = () => $("picker").close();
 

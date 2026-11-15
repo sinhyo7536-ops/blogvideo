@@ -108,9 +108,9 @@ def test_write_again_replaces_script(api):
     c, manager, _ = api
     job_id = _load(c, manager)
     c.post(f"/api/jobs/{job_id}/write", json={"mode": "manual"})
-    c.post(f"/api/jobs/{job_id}/write", json={"mode": "gemini"})
+    c.post(f"/api/jobs/{job_id}/write", json={"mode": "api"})
     s = wait_stage(manager, job_id, "ready")
-    assert s.mode == "gemini" and s.script.scenes
+    assert s.mode == "api" and s.script.scenes
 
 
 # ---------- 직접 작성 ----------
@@ -212,27 +212,6 @@ def test_claude_without_downloaded_photos_gets_text_only():
     c = FakeClaude(DRAFT)
     generate_script(post, "k", client=c)
     assert isinstance(c.kwargs["messages"][0]["content"], str)
-
-
-def test_gemini_gets_photos_and_effect_schema(photo_post):
-    from app.gemini import SCHEMA, generate_script_gemini
-
-    seen = {}
-
-    def gen(*, model, contents, config):
-        seen["contents"] = contents
-        return SimpleNamespace(text=json.dumps({
-            "scenes": [{"text": "항구예요", "image_index": 1, "place": "", "motion": "zoom_out", "transition": "circle"}],
-            "yt_title": "t", "yt_description": "d", "yt_tags": ["a"], "intro_title": "통영", "intro_sub": ""},
-            ensure_ascii=False))
-
-    client = SimpleNamespace(models=SimpleNamespace(generate_content=gen))
-    s = generate_script_gemini(photo_post, "k", client=client)
-    parts = [p for p in seen["contents"] if not isinstance(p, str)]
-    assert len(parts) == 3 and "사진 1번" in seen["contents"]
-    assert (s.scenes[0].image_index, s.scenes[0].motion, s.scenes[0].transition) == (1, "zoom_out", "circle")
-    scene = SCHEMA["properties"]["scenes"]["items"]
-    assert "pan_left" in scene["properties"]["motion"]["enum"] and "circle" in scene["properties"]["transition"]["enum"]
 
 
 def test_prompt_tells_ai_to_look_at_photos_and_pick_effects():

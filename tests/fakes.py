@@ -53,13 +53,9 @@ def fake_steps(delay=0.0, fail_fetch_times=0, key="sk-ant-test1234"):
         (dest / "유튜브 곡.mp3").write_bytes(b"mp3 from " + url.encode())
         return "유튜브 곡.mp3"
 
-    def gemini_script(post, api_key):
-        return generate_script(post, key).model_copy(update={"yt_title": "제미나이가 쓴 제목"})
-
     return Steps(fetch_post=fetch_post, download_images=download_images, generate_script=generate_script,
                  synthesize_all=synthesize_all, render_video=render_video, api_key=lambda: key,
-                 voice_preview=voice_preview, fetch_music=fetch_music,
-                 gemini_script=gemini_script, gemini_key=lambda: "AIza-test")
+                 voice_preview=voice_preview, fetch_music=fetch_music)
 
 
 def wait_stage(manager: JobManager, job_id: str, stage: str, timeout=5.0):

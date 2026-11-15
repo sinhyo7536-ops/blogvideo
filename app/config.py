@@ -8,7 +8,8 @@ from app import secret
 from app.paths import config_dir
 
 log = logging.getLogger(__name__)
-SECRET_KEYS = ("anthropic_api_key", "gemini_api_key")
+SECRET_KEYS = ("anthropic_api_key",)
+RETIRED_KEYS = ("gemini_api_key",)   # 제미나이를 뺀 뒤 남은 키: 읽을 때 지운다
 
 
 def _file():
@@ -23,6 +24,9 @@ def load_config() -> dict:
         data = json.loads(f.read_text("utf-8"))
     except (OSError, ValueError):
         return {}
+    for name in RETIRED_KEYS:
+        data.pop(name + "_enc", None)
+        data.pop(name, None)
     for name in SECRET_KEYS:
         enc = data.pop(name + "_enc", None)
         if enc:

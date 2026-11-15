@@ -28,7 +28,7 @@ class Cancelled(Exception):
     """사용자가 \"멈추기\"를 눌렀다."""
 
 _ACTIVE = {"queued", "scraping", "scripting", "directing", "tts", "rendering"}
-NO_AI_KEY = "연출 요청을 반영하려면 AI 키가 필요해요. 설정에서 Claude나 Gemini 키를 넣거나, 연출 요청 칸을 비워 주세요."
+NO_AI_KEY = "연출 요청을 반영하려면 Claude API 키가 필요해요. 설정에서 키를 넣거나, 연출 요청 칸을 비워 주세요."
 
 
 @dataclass
@@ -40,12 +40,10 @@ class Steps:
     render_video: Callable
     api_key: Callable[[], str]
     channel_name: Callable[[], str] = lambda: ""   # 설정의 채널 이름 (비면 블로그 이름)
-    direct: Callable | None = None          # (대본, 설정, 엔진, 키) → (대본, 설정): 연출 요청 반영
+    direct: Callable | None = None          # (대본, 설정, 키) → (대본, 설정): 연출 요청 반영
     abort: Callable | None = None           # 돌고 있는 외부 작업(FFmpeg)을 바로 끝낸다
     voice_preview: Callable | None = None   # (목소리, 속도, 저장할 파일) → 파일
     fetch_music: Callable | None = None     # (유튜브 주소, 음악 폴더) → 파일 이름
-    gemini_script: Callable | None = None
-    gemini_key: Callable[[], str] = lambda: ""
 
 
 def blank_script(post: BlogPost) -> VideoScript:
@@ -282,10 +280,7 @@ class JobManager:
     def _write(self, job_id: str) -> None:
         s = self._set(job_id, stage="scripting", progress=0.3)
         post, mode = s.post, s.mode
-        if mode == "gemini":
-            script = self.steps.gemini_script(post, self.steps.gemini_key())
-        else:
-            script = self.steps.generate_script(post, self.steps.api_key())
+        script = self.steps.generate_script(post, self.steps.api_key())   # 예전 "gemini" 작업도 Claude로
         self._check(job_id)   # AI가 쓰는 동안 멈췄으면 결과를 버린다
         self._set(job_id, script=script, stage="ready", progress=1.0)
 
@@ -297,17 +292,10 @@ class JobManager:
         if self.steps.direct is None or not needs_direction(s.script):
             return s
         self._set(job_id, stage="directing", progress=0.0)
-        # 대본을 쓴 AI를 그대로 쓰고, 직접 작성이면 키가 있는 쪽을 쓴다
-        claude, gemini = self.steps.api_key(), self.steps.gemini_key()
-        if s.mode == "gemini" and gemini:
-            engine, key = "gemini", gemini
-        elif claude:
-            engine, key = "api", claude
-        elif gemini:
-            engine, key = "gemini", gemini
-        else:
+        key = self.steps.api_key()
+        if not key:
             raise UserError(NO_AI_KEY)
-        script, options = self.steps.direct(s.script, s.options, engine, key)
+        script, options = self.steps.direct(s.script, s.options, key)
         self._check(job_id)
         return self._set(job_id, script=script, options=options)
 
