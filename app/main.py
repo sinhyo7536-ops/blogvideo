@@ -22,7 +22,7 @@ from app.paths import jobs_dir, music_dirs, resource_path, user_music_dir
 from app.scraper.naver import validate_url
 
 PORT = 8765
-NO_KEY = "API 키가 없어요. 설정에서 키를 넣거나, 무료 방법(AI 없이)을 골라 주세요."
+NO_KEY = "Claude API 키가 없어요. 설정에서 키를 넣거나, 제미나이(무료)를 골라 주세요."
 PC_ONLY = "설정은 PC에서만 바꿀 수 있어요."
 LOCAL_ONLY = "이 프로그램은 설치된 PC에서만 쓸 수 있어요."
 _LOCAL_HOSTS = {"127.0.0.1", "localhost", "[::1]"}
@@ -70,6 +70,7 @@ def default_steps() -> Steps:
     from app.render import render_video, stop_current
     from app.scraper.naver import download_images, fetch_post
     from app.script import generate_script
+    from app.director import direct
     from app.gemini import generate_script_gemini
     from app.tts import preview, synthesize_all
     from app.ytmusic import fetch_audio
@@ -77,7 +78,7 @@ def default_steps() -> Steps:
     return Steps(fetch_post=fetch_post, download_images=download_images, generate_script=generate_script,
                  synthesize_all=synthesize_all, render_video=render_video,
                  api_key=lambda: config.load_config().get("anthropic_api_key", ""),
-                 gemini_script=generate_script_gemini, voice_preview=preview, fetch_music=fetch_audio, abort=stop_current,
+                 gemini_script=generate_script_gemini, voice_preview=preview, fetch_music=fetch_audio, abort=stop_current, direct=direct,
                  channel_name=lambda: config.load_config().get("channel_name", ""),
                  gemini_key=lambda: config.load_config().get("gemini_api_key", ""))
 
@@ -85,11 +86,11 @@ def default_steps() -> Steps:
 class CreateJob(BaseModel):
     url: str
     options: RenderOptions = RenderOptions()
-    mode: Literal["api", "auto", "gemini", "load"] = "api"   # load: 글·사진만 불러오기
+    mode: Literal["api", "gemini", "load", "manual"] = "api"   # load: 글·사진만, manual: 불러온 뒤 바로 직접 작성
 
 
 class WriteMode(BaseModel):
-    mode: Literal["api", "auto", "gemini", "manual"]
+    mode: Literal["api", "gemini", "manual"]
 
 
 class VoicePreview(BaseModel):
@@ -99,10 +100,6 @@ class VoicePreview(BaseModel):
 
 class YoutubeMusic(BaseModel):
     url: str
-
-
-class FreeMode(BaseModel):
-    mode: Literal["auto"]
 
 
 class UpdateScript(BaseModel):
@@ -234,13 +231,9 @@ def create_app(manager: JobManager | None = None) -> FastAPI:
 
     @app.post("/api/jobs/{job_id}/write")
     def write(job_id: str, body: WriteMode):
-        """불러온 글로 대본 만들기: 추천대로(api/gemini/auto) 또는 직접 작성(manual)."""
+        """불러온 글로 대본 만들기: AI(api/gemini) 또는 직접 작성(manual)."""
         need_key(body.mode)
         return _public(manager.write(job_id, body.mode))
-
-    @app.post("/api/jobs/{job_id}/free-mode")
-    def free_mode(job_id: str, body: FreeMode):
-        return _public(manager.use_free_mode(job_id, body.mode))
 
     @app.get("/api/jobs/{job_id}")
     def get_job(job_id: str):

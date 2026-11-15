@@ -206,7 +206,7 @@ def test_render_gets_channel_from_settings_or_blog_name(tmp_path, monkeypatch):
     steps.channel_name = lambda: name["v"]
     c, manager = _client(tmp_path, monkeypatch, steps)
     for expected in ("블로그 이름", "내 채널"):
-        job = c.post("/api/jobs", json={"url": "https://blog.naver.com/a/1", "mode": "auto"}).json()
+        job = c.post("/api/jobs", json={"url": "https://blog.naver.com/a/1", "mode": "api"}).json()
         wait_stage(manager, job["id"], "ready")
         c.post(f"/api/jobs/{job['id']}/render")
         wait_stage(manager, job["id"], "done")
@@ -218,7 +218,7 @@ def test_thumbnail_endpoint(tmp_path, monkeypatch):
     from tests.fakes import wait_stage
 
     c, manager = _client(tmp_path, monkeypatch)
-    job = c.post("/api/jobs", json={"url": "https://blog.naver.com/a/1", "mode": "auto",
+    job = c.post("/api/jobs", json={"url": "https://blog.naver.com/a/1", "mode": "api",
                                     "options": {"template": "vlog", "effects": "soft"}}).json()
     assert job["options"]["template"] == "vlog"
     wait_stage(manager, job["id"], "ready")

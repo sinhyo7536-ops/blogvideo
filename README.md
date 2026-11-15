@@ -13,7 +13,8 @@
 |---|---|
 | `app/scraper/naver.py` | 네이버 블로그 글 제목·문단·사진 추출, 사진 다운로드 |
 | `app/script.py` | Claude API(`claude-opus-5-5`, 구조화 출력)로 장면 대본 + 유튜브 제목/설명/태그 생성 |
-| `app/autoscript.py` | AI 없이 블로그 문장을 장면으로 나누기 (무료) |
+| `app/director.py` | 사용자가 말로 적은 연출 요청을 AI가 장면 설정(움직임·전환·색감·자막·머무는 시간·자막 글)으로 바꾼다 |
+| `app/autoscript.py` | 블로그 제목에서 유튜브 태그 뽑기 (직접 작성용) |
 | `app/gemini.py` | Gemini 무료 API로 장면 대본 생성 (Claude와 같은 프롬프트·형식) |
 | `app/ytmusic.py` | 유튜브 링크의 소리를 배경음악 MP3로 가져오기 (yt-dlp) |
 | `app/visuals.py` | 영상 스타일 3종(깔끔/감성/브이로그), 제목 띠·장소 이름표, 시작·끝 화면, 썸네일 |

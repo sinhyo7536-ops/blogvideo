@@ -89,13 +89,10 @@ def test_full_flow(live_server, browser, vp):
     shot(page, f"{tag}1_home")
     page.fill("#url", "https://blog.naver.com/a/1")
     page.click("#btn-load")
-    page.wait_for_selector("#view-source:not(.hidden)", timeout=10000)
-    shot(page, f"{tag}1b_source")
-    page.click("#btn-recommend")
     page.wait_for_selector(".scene-card", timeout=10000)
     page.click('#view-edit .seg[data-name="aspect"] button[data-value="9:16"]')
     shot(page, f"{tag}2_edit")
-    page.fill(".scene-card textarea >> nth=0", "고친 자막")
+    page.fill(".scene-card textarea:not(.direction) >> nth=0", "고친 자막")
     page.click("button:has-text('영상 만들기')")
     page.wait_for_selector("video", timeout=10000)
     shot(page, f"{tag}3_result")
@@ -126,23 +123,31 @@ def test_settings_visible_on_pc(live_server, browser):
     shot(page, "d4_settings")
 
 
-def _to_edit(page, base):
+def _open(page, base):
     page.goto(base)
     page.evaluate("localStorage.clear()")
     page.reload()
     page.fill("#url", "https://blog.naver.com/a/1")
+
+
+def _to_edit(page, base):
+    """링크를 넣고 'AI로 대본 만들기' → 대본 고치기 화면."""
+    _open(page, base)
     page.click("#btn-load")
-    page.wait_for_selector("#view-source:not(.hidden)", timeout=10000)
-    page.click("#btn-recommend")
     page.wait_for_selector(".scene-card", timeout=10000)
 
 
+def _to_manual(page, base):
+    """'AI 없이 직접 작성하기' → 장면이 빈 직접 작성 화면."""
+    _open(page, base)
+    page.click("#btn-home-manual")
+    page.wait_for_selector("#edit-title:has-text('직접 작성')", timeout=10000)
+
+
 def _to_source(page, base):
-    page.goto(base)
-    page.evaluate("localStorage.clear()")
-    page.reload()
-    page.fill("#url", "https://blog.naver.com/a/1")
-    page.click("#btn-load")
+    """대본 고치기에서 '작성 방법 다시 고르기' → 불러온 글 화면."""
+    _to_edit(page, base)
+    page.click("#btn-rewrite")
     page.wait_for_selector("#view-source:not(.hidden)", timeout=10000)
 
 
@@ -158,12 +163,12 @@ def test_home_button_leaves_edit(live_server, browser):
 def test_settings_roundtrip_keeps_edits(live_server, browser):
     page = browser.new_page(viewport={"width": 1280, "height": 800})
     _to_edit(page, live_server)
-    page.fill(".scene-card textarea >> nth=0", "바뀐 자막")
+    page.fill(".scene-card textarea:not(.direction) >> nth=0", "바뀐 자막")
     page.click("#open-settings")
     page.wait_for_selector("#view-settings:not(.hidden)")
     page.click("#btn-settings-back")
     page.wait_for_selector("#view-edit:not(.hidden)")
-    assert page.input_value(".scene-card textarea >> nth=0") == "바뀐 자막"
+    assert page.input_value(".scene-card textarea:not(.direction) >> nth=0") == "바뀐 자막"
 
 
 def test_rerender_refreshes_preview(live_server, browser):
@@ -199,44 +204,17 @@ def test_make_keyed_installer(live_server, browser, tmp_path):
     shot(page, "d5_keyed")
 
 
-def _start_job(page, base, mode_label):
-    page.goto(base)
-    page.evaluate("localStorage.clear()")
-    page.reload()
-    page.fill("#url", "https://blog.naver.com/a/1")
-    page.click("#btn-load")
-    page.wait_for_selector("#view-source:not(.hidden)", timeout=10000)
-    page.click(f"#view-source >> text={mode_label}")
-    page.click("#btn-recommend")
-
-
-def test_free_auto_flow(live_server, browser):
-    page = browser.new_page(viewport={"width": 390, "height": 844})
-    _start_job(page, live_server, "AI 없이(무료)")
-    page.wait_for_selector(".scene-card", timeout=10000)
-    assert "끝까지 봐 주셔서" in page.input_value(".scene-card textarea >> nth=-1")
-
-
-def test_api_error_offers_free_modes(live_server_api_fails, browser):
-    page = browser.new_page(viewport={"width": 390, "height": 844})
-    _start_job(page, live_server_api_fails, "Claude(유료)")
-    page.wait_for_selector("#view-error:not(.hidden)", timeout=10000)
-    shot(page, "m7_error_free")
-    page.click("#btn-free-auto")
-    page.wait_for_selector(".scene-card", timeout=5000)
-
-
 def test_no_claude_paste_option(live_server, browser):
     page = browser.new_page(viewport={"width": 390, "height": 844})
-    _to_source(page, live_server)
-    page.wait_for_selector("text=AI 없이(무료)")
+    page.goto(live_server)
+    page.wait_for_selector("#btn-load")
     assert page.locator("text=붙여넣기").count() == 0
 
 
 def test_gemini_key_and_mode_in_ui(live_server, browser):
     page = browser.new_page(viewport={"width": 1280, "height": 800})
-    _to_source(page, live_server)
-    page.wait_for_selector("text=Gemini(무료)")
+    page.goto(live_server)
+    page.wait_for_selector("#view-home >> text=제미나이(무료)")
     page.click("#open-settings")
     page.fill("#gemini-key", "AIzaSyUI-TEST-4321")
     page.click("#btn-save-gemini")
@@ -376,14 +354,6 @@ def test_channel_name_saved_in_settings(live_server, browser):
 
 
 # ---------- 기능 나누기: 불러오기 → 추천대로 / 직접 작성 ----------
-def test_home_only_asks_for_the_address(live_server, browser):
-    page = browser.new_page(viewport={"width": 390, "height": 844})
-    page.goto(live_server)
-    page.wait_for_selector("#btn-load")
-    assert page.locator("#view-home .seg").count() == 0
-    assert page.inner_text("#btn-load") == "블로그 불러오기"
-
-
 def test_loaded_post_shows_photos_text_and_two_choices(live_server, browser):
     page = browser.new_page(viewport={"width": 390, "height": 844})
     _to_source(page, live_server)
@@ -393,16 +363,11 @@ def test_loaded_post_shows_photos_text_and_two_choices(live_server, browser):
     assert page.locator("#source-text p").count() == 1
     assert page.is_visible("#btn-recommend") and page.is_visible("#btn-manual")
     assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
-    assert _job(page)["script"] is None         # 아직 대본을 만들지 않음
-    page.reload()                                # 새로고침해도 이 화면
-    page.wait_for_selector("#view-source:not(.hidden)", timeout=5000)
 
 
 def test_manual_writing_from_blog_text_and_photo(live_server, browser):
     page = browser.new_page(viewport={"width": 1280, "height": 800})
-    _to_source(page, live_server)
-    page.click("#btn-manual")
-    page.wait_for_selector("#view-edit:not(.hidden)", timeout=5000)
+    _to_manual(page, live_server)
     assert page.inner_text("#edit-title") == "직접 작성"
     assert page.locator(".scene-card").count() == 0 and page.is_visible("#empty-scenes")
     assert page.evaluate("document.getElementById('source-panel').open")
@@ -412,8 +377,8 @@ def test_manual_writing_from_blog_text_and_photo(live_server, browser):
     page.click("#panel-photos .photo >> nth=0")               # 사진 → 장면
     page.click("#btn-add-scene")                              # 빈 장면
     assert page.locator(".scene-card").count() == 3 and not page.is_visible("#empty-scenes")
-    assert page.input_value(".scene-card textarea >> nth=0") == "p"
-    page.fill(".scene-card textarea >> nth=1", "내가 직접 쓴 자막")
+    assert page.input_value(".scene-card textarea:not(.direction) >> nth=0") == "p"
+    page.fill(".scene-card textarea:not(.direction) >> nth=1", "내가 직접 쓴 자막")
     page.select_option(".scene-card select.motion >> nth=1", "pan_left")
     page.select_option(".scene-card select.transition >> nth=1", "circle")
     page.click("button:has-text('영상 만들기')")
@@ -512,7 +477,7 @@ def test_scene_summary_shows_count_and_length(live_server, browser):
     first = page.inner_text("#scene-summary")
     assert first.startswith("장면 1개 · 예상 길이 약")
     page.click("#btn-add-scene")
-    page.fill(".scene-card textarea >> nth=1", "가" * 330)          # 약 1분 분량
+    page.fill(".scene-card textarea:not(.direction) >> nth=1", "가" * 330)          # 약 1분 분량
     assert page.inner_text("#scene-summary").startswith("장면 2개 · 예상 길이 약 1분")
     page.on("dialog", lambda d: d.accept())
     page.click(".scene-card >> nth=1 >> button[title='삭제']")
@@ -586,13 +551,14 @@ def test_photos_do_not_overlap_and_are_numbered(tmp_path, monkeypatch, browser, 
     for base in _serve(_serve_with_photos(tmp_path, monkeypatch)):
         page = browser.new_page(viewport=vp)
         _to_source(page, base)
+        page.on("dialog", lambda d: d.accept())
         page.wait_for_function(LOADED_JS, arg="#source-photos img")
         boxes = page.evaluate(BOXES_JS, "#source-photos .photo")
         assert len(boxes) == 7 and not _overlapping(boxes)
         assert all(b[3] - b[1] > 60 for b in boxes)                      # 찌그러진 칸 없음
         assert page.locator("#source-photos .photo .num").all_inner_texts() == [str(i) for i in range(1, 8)]
         page.click("#btn-manual")
-        page.wait_for_selector("#view-edit:not(.hidden)")
+        page.wait_for_selector("#edit-title:has-text('직접 작성')")
         page.click("#panel-photos .photo >> nth=2")                       # 사진 3으로 장면 만들기
         page.wait_for_selector(".scene-card")
         assert not _overlapping(page.evaluate(BOXES_JS, "#panel-photos .photo"))
@@ -612,13 +578,11 @@ def test_photos_do_not_overlap_and_are_numbered(tmp_path, monkeypatch, browser, 
 def test_add_scene_anywhere_duplicate_and_split(tmp_path, monkeypatch, browser):
     for base in _serve(_serve_with_photos(tmp_path, monkeypatch)):
         page = browser.new_page(viewport={"width": 1280, "height": 800})
-        _to_source(page, base)
-        page.click("#btn-manual")
-        page.wait_for_selector("#view-edit:not(.hidden)")
+        _to_manual(page, base)
         page.click("#btn-add-scene")
-        page.fill(".scene-card textarea >> nth=0", "A")
+        page.fill(".scene-card textarea:not(.direction) >> nth=0", "A")
         page.click("#btn-add-scene")
-        page.fill(".scene-card textarea >> nth=1", "C")
+        page.fill(".scene-card textarea:not(.direction) >> nth=1", "C")
         page.click(".scene-card >> nth=1 >> text=+ 앞에 추가")            # A와 C 사이에 끼우기
         page.keyboard.type("B")
         assert _texts(page) == ["A", "B", "C"]
@@ -639,12 +603,12 @@ def test_add_scene_anywhere_duplicate_and_split(tmp_path, monkeypatch, browser):
         assert _texts(page) == ["처음", "A", "둘째 문단", "B", "B", "C", "끝"]
         assert page.input_value(".scene-card >> nth=4 >> select.motion") == "pan_left"
         # 나누기: 커서 위치에서
-        page.fill(".scene-card textarea >> nth=5", "앞부분 뒷부분")
-        page.evaluate("document.querySelectorAll('.scene-card textarea')[5].setSelectionRange(3, 3)")
+        page.fill(".scene-card textarea:not(.direction) >> nth=5", "앞부분 뒷부분")
+        page.evaluate("document.querySelectorAll('.scene-card textarea:not(.direction)')[5].setSelectionRange(3, 3)")
         page.click(".scene-card >> nth=5 >> text=나누기")
         assert _texts(page)[5:7] == ["앞부분", "뒷부분"]
         # 나누기: 커서가 끝에 있으면 문장 끝에서
-        page.fill(".scene-card textarea >> nth=0", "첫 문장이에요. 둘째 문장이에요.")
+        page.fill(".scene-card textarea:not(.direction) >> nth=0", "첫 문장이에요. 둘째 문장이에요.")
         page.click(".scene-card >> nth=0 >> text=나누기")
         assert _texts(page)[:2] == ["첫 문장이에요.", "둘째 문장이에요."]
         # 나눌 수 없으면 안내만
@@ -672,7 +636,7 @@ def test_stop_button_while_making_video(tmp_path, monkeypatch, browser):
     for base in _serve(m):
         page = browser.new_page(viewport={"width": 390, "height": 844})
         _to_edit(page, base)
-        page.fill(".scene-card textarea >> nth=0", "멈춰도 남아 있을 자막")
+        page.fill(".scene-card textarea:not(.direction) >> nth=0", "멈춰도 남아 있을 자막")
         page.click("button:has-text('영상 만들기')")
         page.wait_for_selector("#btn-cancel:has-text('영상 만들기 멈추기')", timeout=10000)
         asked = []
@@ -680,7 +644,7 @@ def test_stop_button_while_making_video(tmp_path, monkeypatch, browser):
         page.click("#btn-cancel")
         page.wait_for_selector("#view-edit:not(.hidden)", timeout=10000)   # 대본 고치기로 돌아옴
         assert asked and "멈출까요" in asked[0]
-        assert page.input_value(".scene-card textarea >> nth=0") == "멈춰도 남아 있을 자막"
+        assert page.input_value(".scene-card textarea:not(.direction) >> nth=0") == "멈춰도 남아 있을 자막"
         m.steps.render_video = real                                        # 다시 만들면 끝까지 됨
         page.click("button:has-text('영상 만들기')")
         page.wait_for_selector("#view-result:not(.hidden)", timeout=10000)
@@ -700,3 +664,88 @@ def test_stop_button_while_loading_goes_home(tmp_path, monkeypatch, browser):
         page.wait_for_selector("#view-home:not(.hidden)", timeout=10000)
         assert page.evaluate("localStorage.getItem('blogvideo.jobId')") is None
         page.close()
+
+
+# ---------- 링크 → AI가 바로 대본, 연출 요청, 'AI 없이' 제거 ----------
+def test_home_offers_two_ais_and_small_manual_button(live_server, browser):
+    page = browser.new_page(viewport={"width": 390, "height": 844})
+    page.goto(live_server)
+    page.wait_for_selector("#btn-load")
+    assert page.locator('#view-home .seg[data-name="mode"] button').all_inner_texts() == ["클로드(유료)", "제미나이(무료)"]
+    assert page.inner_text("#btn-load") == "AI로 대본 만들기" and page.is_visible("#btn-home-manual")
+    assert page.locator("text=AI 없이(무료)").count() == 0 and page.locator("#btn-free-auto").count() == 0
+    assert "사진" in page.inner_text("#view-home .mode-help")
+    box = page.locator("#btn-home-manual").bounding_box()
+    big = page.locator("#btn-load").bounding_box()
+    assert box["height"] < big["height"] and box["y"] > big["y"]          # 아래에 작게
+    assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+
+
+@pytest.mark.parametrize("mode,title", [("api", "제목: 테스트/글"), ("gemini", "제미나이가 쓴 제목")])
+def test_link_then_ai_writes_without_extra_step(live_server, browser, mode, title):
+    page = browser.new_page(viewport={"width": 1280, "height": 800})
+    _open(page, live_server)
+    page.click(f'#view-home .seg[data-name="mode"] button[data-value="{mode}"]')
+    page.click("#btn-load")
+    page.wait_for_selector(".scene-card", timeout=10000)                  # 고르는 화면 없이 바로 대본
+    assert page.input_value("#yt-title") == title and _job(page)["mode"] == mode
+
+
+def test_api_error_has_no_free_fallback(live_server_api_fails, browser):
+    page = browser.new_page(viewport={"width": 390, "height": 844})
+    _open(page, live_server_api_fails)
+    page.click("#btn-load")
+    page.wait_for_selector("#view-error:not(.hidden)", timeout=10000)
+    assert page.is_visible("#btn-retry") and page.locator("text=AI 없이 계속하기").count() == 0
+
+
+def test_direction_requests_are_sent_and_result_shown(tmp_path, monkeypatch, browser):
+    from app.director import Direction, SceneDirection, apply
+
+    m = _start(tmp_path, monkeypatch)
+    seen = []
+
+    def fake_direct(script, options, engine, key):
+        seen.append({"overall": script.direction, "scene": script.scenes[0].direction, "engine": engine})
+        return apply(script, options, Direction(
+            scenes=[SceneDirection(index=0, text="AI가 짧게 고친 자막", look="warm", caption_size="large", hold=2,
+                                   motion="zoom_out", strength="subtle")], template="mood"))
+
+    m.steps.direct = fake_direct
+    for base in _serve(m):
+        page = browser.new_page(viewport={"width": 390, "height": 844})
+        _to_edit(page, base)
+        assert page.is_visible("#direction") and page.locator(".scene-card textarea.direction").count() == 1
+        assert not page.is_visible(".scene-card .applied")
+        page.fill("#direction", "전체적으로 잔잔하게")
+        page.fill(".scene-card textarea.direction >> nth=0", "따뜻하게, 자막 크게, 오래 보여 줘. 더 짧게 써 줘")
+        assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+        page.click("button:has-text('영상 만들기')")
+        page.wait_for_selector("#view-result:not(.hidden)", timeout=10000)
+        assert seen == [{"overall": "전체적으로 잔잔하게", "scene": "따뜻하게, 자막 크게, 오래 보여 줘. 더 짧게 써 줘",
+                         "engine": "api"}]
+        page.click("#btn-reedit")                                          # AI가 정한 연출이 화면에 보임
+        page.wait_for_selector("#view-edit:not(.hidden)")
+        assert page.input_value(".scene-card textarea:not(.direction) >> nth=0") == "AI가 짧게 고친 자막"
+        assert page.input_value(".scene-card select.motion >> nth=0") == "zoom_out"
+        assert page.inner_text(".scene-card .applied span") == "AI 연출: 따뜻한 색감 · 은은한 움직임 · 자막 크게 · 2초 더 머무름"
+        assert page.locator('#view-edit .seg[data-name="template"] button.on').inner_text() == "감성"
+        assert page.input_value("#direction") == "전체적으로 잔잔하게"
+        page.click("button:has-text('영상 만들기')")                       # 요청을 안 바꾸면 AI를 다시 부르지 않음
+        page.wait_for_selector("#view-result:not(.hidden)", timeout=10000)
+        assert len(seen) == 1
+        page.click("#btn-reedit")
+        page.wait_for_selector("#view-edit:not(.hidden)")
+        page.click(".scene-card .applied button")                          # 되돌리기
+        assert not page.is_visible(".scene-card .applied")
+        assert page.evaluate("state.script.scenes[0].look") == "auto"
+        page.close()
+
+
+def test_duplicate_keeps_direction_and_new_scene_has_empty_one(live_server, browser):
+    page = browser.new_page(viewport={"width": 1280, "height": 800})
+    _to_edit(page, live_server)
+    page.fill(".scene-card textarea.direction >> nth=0", "흑백으로")
+    page.click(".scene-card >> nth=0 >> text=복제")
+    page.click("#btn-add-scene")
+    assert page.evaluate("state.script.scenes.map(s => s.direction || '')") == ["흑백으로", "흑백으로", ""]

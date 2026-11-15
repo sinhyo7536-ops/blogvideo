@@ -26,7 +26,7 @@ def api(tmp_path, monkeypatch):
 
 
 def _ready(c, manager):
-    job = c.post("/api/jobs", json={"url": URL, "mode": "auto"}).json()
+    job = c.post("/api/jobs", json={"url": URL, "mode": "api"}).json()
     wait_stage(manager, job["id"], "ready")
     return job["id"]
 

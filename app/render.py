@@ -33,6 +33,14 @@ OUTRO_SEC = 3.5
 SOFT_SEC = 0.6
 CAPTION_IN = 0.35  # 자막이 아래에서 떠오르는 시간
 MOTIONS = ("zoom_in", "pan_right", "zoom_out", "pan_left", "zoom_in", "pan_up", "zoom_out", "pan_down")  # 자동일 때 순서
+STRENGTH = {"subtle": 0.05, "strong": 0.18}   # 움직임 세기 → 확대·이동 비율 (기본은 ZOOM)
+LOOK = {   # 색감 → FFmpeg 필터
+    "warm": "colorbalance=rs=.07:gs=.02:bs=-.08:rm=.05:bm=-.05,eq=saturation=1.08",
+    "cool": "colorbalance=rs=-.06:bs=.08:rm=-.04:bm=.05",
+    "bw": "hue=s=0,eq=contrast=1.06",
+    "vivid": "eq=saturation=1.35:contrast=1.06",
+    "soft": "eq=saturation=.85:contrast=.94:brightness=.03",
+}
 XFADE = {"fade": "fade", "slide": "slideleft", "push": "smoothleft", "circle": "circleopen",
          "black": "fadeblack", "zoom": "zoomin", "wipe": "wiperight"}
 THANKS = "시청해 주셔서 감사합니다"
@@ -101,6 +109,8 @@ class Segment:
     audio: str | None = None          # 없으면 무음
     motion: str = "zoom_in"
     transition: str = ""              # 이 토막으로 들어올 때의 xfade 종류. 비면 스타일의 기본 순서
+    zoom: float = ZOOM                # 움직임 세기
+    look: str = ""                    # 색감 필터 (LOOK 값). 비면 그대로
 
 
 def _prepare_bg(src: str, out: Path, size: tuple[int, int]) -> Path:
@@ -112,7 +122,7 @@ def _prepare_bg(src: str, out: Path, size: tuple[int, int]) -> Path:
     return out
 
 
-def _motion_chain(motion: str, length: float, size: tuple[int, int]) -> str:
+def _motion_chain(motion: str, length: float, size: tuple[int, int], zoom: float = ZOOM) -> str:
     """배경 사진의 움직임. zoompan은 정수 픽셀 반올림으로 떨리므로 쓰지 않는다.
 
     확대/축소: 매 프레임 크기를 조금씩 바꾸고 가운데를 자른다.
@@ -124,11 +134,11 @@ def _motion_chain(motion: str, length: float, size: tuple[int, int]) -> str:
     if motion == "still":
         chain = f"scale={sw}:{sh}:flags=bicubic"
     elif motion in ("zoom_in", "zoom_out"):
-        grow = f"{ZOOM}*t/{L}" if motion == "zoom_in" else f"{ZOOM}*(1-t/{L})"
+        grow = f"{zoom}*t/{L}" if motion == "zoom_in" else f"{zoom}*(1-t/{L})"
         chain = (f"scale=w='trunc({sw}*(1+{grow})/2)*2':h=-2:eval=frame:flags=bicubic,"
                  f"crop={sw}:{sh}")
     else:
-        big = f"scale=w='trunc({sw}*(1+{ZOOM})/2)*2':h=-2:flags=bicubic,format=yuv444p"
+        big = f"scale=w='trunc({sw}*(1+{zoom})/2)*2':h=-2:flags=bicubic,format=yuv444p"
         cx, cy = "(in_w-out_w)/2", "(in_h-out_h)/2"
         if motion == "pan_right":
             cx = f"(in_w-out_w)*t/{L}"
@@ -148,7 +158,8 @@ def _segment_clip(i: int, seg: Segment, length: float, size: tuple[int, int], wo
     L = f"{length:.3f}"
     if seg.bg is not None:
         inputs = ["-loop", "1", "-framerate", str(FPS), "-t", L, "-i", str(seg.bg)]
-        graph = f"[0:v]{_motion_chain(seg.motion, length, size)}[s0];"
+        look = f",{seg.look}" if seg.look else ""
+        graph = f"[0:v]{_motion_chain(seg.motion, length, size, seg.zoom)}{look}[s0];"
     else:
         inputs = ["-f", "lavfi", "-t", L, "-i", f"color=c={BG_COLOR}:s={w}x{h}:r={FPS}"]
         graph = "[0:v]setsar=1[s0];"
@@ -211,13 +222,16 @@ def _build_segments(post: BlogPost, script: VideoScript, options: RenderOptions,
         overlays = []
         if options.title_bar and (title or scene.place):
             overlays.append(visuals.render_overlay_png(title, scene.place, w, h, workdir / f"overlay_{i:02d}.png", tpl))
-        caption = render_caption_png(scene.text, w, h, workdir / f"caption_{i:02d}.png", tpl)
+        caption = render_caption_png(scene.text, w, h, workdir / f"caption_{i:02d}.png", tpl,
+                                     size=scene.caption_size, pos=scene.caption_pos)
         if scene.motion != "auto":       # 장면에서 직접 고른(또는 AI가 추천한) 움직임이 먼저
             motion = scene.motion
         else:
             motion = "zoom_in" if options.effects == "soft" else MOTIONS[i % len(MOTIONS)]
-        segs.append(Segment(duration=scene.duration, bg=bg, overlays=overlays, caption=caption,
-                            audio=scene.audio_path, motion=motion, transition=XFADE.get(scene.transition, "")))
+        segs.append(Segment(duration=round(scene.duration + scene.hold, 3), bg=bg, overlays=overlays,
+                            caption=caption, audio=scene.audio_path, motion=motion,
+                            transition=XFADE.get(scene.transition, ""),
+                            zoom=STRENGTH.get(scene.strength, ZOOM), look=LOOK.get(scene.look, "")))
         if on_step:   # 사진 준비도 오래 걸릴 수 있어 장면마다 알린다(진행률 표시, 멈추기 확인)
             on_step((i + 1) / len(script.scenes))
     if options.outro:

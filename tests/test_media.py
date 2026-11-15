@@ -69,7 +69,7 @@ def test_job_passes_voice_and_speed_to_tts(api):
         return real(script, voice, dest, on_progress, speed)
 
     manager.steps.synthesize_all = spy
-    job = c.post("/api/jobs", json={"url": "https://blog.naver.com/a/1", "mode": "auto"}).json()
+    job = c.post("/api/jobs", json={"url": "https://blog.naver.com/a/1", "mode": "api"}).json()
     s = wait_stage(manager, job["id"], "ready")
     opts = {**job["options"], "voice": "hyunsu", "speed": "slow"}
     r = c.put(f"/api/jobs/{job['id']}/script", json={"script": s.script.model_dump(), "options": opts})

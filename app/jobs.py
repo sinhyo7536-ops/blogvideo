@@ -12,7 +12,6 @@ from pathlib import Path
 from typing import Callable
 
 from app.errors import UserError
-from app.autoscript import auto_script
 from app.models import BlogPost, JobState, RenderOptions, VideoScript
 
 log = logging.getLogger(__name__)
@@ -28,7 +27,8 @@ STOPPED = "불러오기를 멈췄어요."
 class Cancelled(Exception):
     """사용자가 \"멈추기\"를 눌렀다."""
 
-_ACTIVE = {"queued", "scraping", "scripting", "tts", "rendering"}
+_ACTIVE = {"queued", "scraping", "scripting", "directing", "tts", "rendering"}
+NO_AI_KEY = "연출 요청을 반영하려면 AI 키가 필요해요. 설정에서 Claude나 Gemini 키를 넣거나, 연출 요청 칸을 비워 주세요."
 
 
 @dataclass
@@ -39,8 +39,8 @@ class Steps:
     synthesize_all: Callable
     render_video: Callable
     api_key: Callable[[], str]
-    auto_script: Callable = auto_script
     channel_name: Callable[[], str] = lambda: ""   # 설정의 채널 이름 (비면 블로그 이름)
+    direct: Callable | None = None          # (대본, 설정, 엔진, 키) → (대본, 설정): 연출 요청 반영
     abort: Callable | None = None           # 돌고 있는 외부 작업(FFmpeg)을 바로 끝낸다
     voice_preview: Callable | None = None   # (목소리, 속도, 저장할 파일) → 파일
     fetch_music: Callable | None = None     # (유튜브 주소, 음악 폴더) → 파일 이름
@@ -79,7 +79,7 @@ class JobManager:
             except ValueError:
                 continue
             if s.stage in _ACTIVE:
-                if s.stage in ("tts", "rendering") or (s.stage == "queued" and s.script):
+                if s.stage in ("directing", "tts", "rendering") or (s.stage == "queued" and s.script):
                     phase = "render"
                 else:
                     phase = "script" if s.post else "prepare"
@@ -165,7 +165,7 @@ class JobManager:
             return s
         with self._lock:
             self._cancel.add(job_id)
-        if self.steps.abort and s.stage in ("tts", "rendering"):
+        if self.steps.abort and s.stage in ("directing", "tts", "rendering"):
             try:
                 self.steps.abort()
             except Exception:
@@ -204,14 +204,6 @@ class JobManager:
         s = self._set(job_id, mode=mode, stage="queued", progress=0.0, message="", failed_phase=None)
         self._queue.put((job_id, "script"))
         return s
-
-    def use_free_mode(self, job_id: str, mode: str) -> JobState:
-        """API 대본이 실패했을 때 무료 방법으로 이어서 하기."""
-        s = self.get(job_id)
-        if s.post is None or s.stage in _ACTIVE or mode != "auto":
-            raise UserError(BUSY)
-        return self._set(job_id, mode="auto", script=self.steps.auto_script(s.post), stage="ready",
-                         progress=1.0, message="", failed_phase=None)
 
     def cleanup_old(self, days: int = 7) -> int:
         limit = time.time() - days * 86400
@@ -277,8 +269,12 @@ class JobManager:
         self._check(job_id)
         post = self.steps.download_images(post, self.dir(job_id) / "images")
         self._check(job_id)
-        if self.get(job_id).mode == "load":   # 불러오기만: 작성 방법은 사용자가 고른다
+        mode = self.get(job_id).mode
+        if mode == "load":   # 불러오기만: 작성 방법은 사용자가 고른다
             self._set(job_id, post=post, stage="loaded", progress=1.0)
+            return
+        if mode == "manual":   # 직접 작성: AI 없이 빈 대본으로 바로 편집
+            self._set(job_id, post=post, script=blank_script(post), stage="ready", progress=1.0)
             return
         self._set(job_id, post=post)
         self._write(job_id)
@@ -286,16 +282,37 @@ class JobManager:
     def _write(self, job_id: str) -> None:
         s = self._set(job_id, stage="scripting", progress=0.3)
         post, mode = s.post, s.mode
-        if mode == "auto":
-            script = self.steps.auto_script(post)
-        elif mode == "gemini":
+        if mode == "gemini":
             script = self.steps.gemini_script(post, self.steps.gemini_key())
         else:
             script = self.steps.generate_script(post, self.steps.api_key())
         self._check(job_id)   # AI가 쓰는 동안 멈췄으면 결과를 버린다
         self._set(job_id, script=script, stage="ready", progress=1.0)
 
+    def _direct(self, job_id: str) -> JobState:
+        """연출 요청이 새로 있으면 AI에게 물어 장면 설정(과 요청받은 자막 글)을 바꾼다."""
+        from app.director import needs_direction
+
+        s = self.get(job_id)
+        if self.steps.direct is None or not needs_direction(s.script):
+            return s
+        self._set(job_id, stage="directing", progress=0.0)
+        # 대본을 쓴 AI를 그대로 쓰고, 직접 작성이면 키가 있는 쪽을 쓴다
+        claude, gemini = self.steps.api_key(), self.steps.gemini_key()
+        if s.mode == "gemini" and gemini:
+            engine, key = "gemini", gemini
+        elif claude:
+            engine, key = "api", claude
+        elif gemini:
+            engine, key = "gemini", gemini
+        else:
+            raise UserError(NO_AI_KEY)
+        script, options = self.steps.direct(s.script, s.options, engine, key)
+        self._check(job_id)
+        return self._set(job_id, script=script, options=options)
+
     def _render(self, job_id: str) -> None:
+        self._direct(job_id)
         s = self._set(job_id, stage="tts", progress=0.0)
         script = self.steps.synthesize_all(s.script, s.options.voice, self.dir(job_id) / "audio",
                                            on_progress=lambda p: self._tick(job_id, round(0.2 * p, 3)),

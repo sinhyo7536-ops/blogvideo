@@ -108,9 +108,9 @@ def test_write_again_replaces_script(api):
     c, manager, _ = api
     job_id = _load(c, manager)
     c.post(f"/api/jobs/{job_id}/write", json={"mode": "manual"})
-    c.post(f"/api/jobs/{job_id}/write", json={"mode": "auto"})
+    c.post(f"/api/jobs/{job_id}/write", json={"mode": "gemini"})
     s = wait_stage(manager, job_id, "ready")
-    assert s.mode == "auto" and s.script.scenes
+    assert s.mode == "gemini" and s.script.scenes
 
 
 # ---------- 직접 작성 ----------

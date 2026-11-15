@@ -61,7 +61,7 @@ def test_quota_message():
     c = FakeGemini([_err(errors.ClientError, 429, "RESOURCE_EXHAUSTED")])
     with pytest.raises(UserError) as e:
         generate_script_gemini(POST, "k", client=c)
-    assert "하루" in e.value.message and "AI 없이" in e.value.message
+    assert "하루" in e.value.message and "Claude" in e.value.message
 
 
 @pytest.mark.parametrize("code,msg", [(400, "API key not valid. Please pass a valid API key."), (403, "leaked key")])
@@ -207,6 +207,6 @@ def test_gemini_schema_and_result_carry_travel_fields():
     body = json.dumps({"scenes": [{"text": "통영이에요", "image_index": 0, "place": "동피랑"}],
                        "yt_title": "t", "yt_description": "d", "yt_tags": ["a"],
                        "intro_title": "통영 여행", "intro_sub": "1박 2일"}, ensure_ascii=False)
-    post = BlogPost(title="제목", paragraphs=["p"], url="u", images=[ImageRef(url="i")])
+    post = BlogPost(title="제목", paragraphs=["동피랑에 갔어요"], url="u", images=[ImageRef(url="i")])
     s = generate_script_gemini(post, "k", client=FakeGemini([body]))
     assert s.scenes[0].place == "동피랑" and (s.intro_title, s.intro_sub) == ("통영 여행", "1박 2일")

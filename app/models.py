@@ -23,6 +23,11 @@ class BlogPost(BaseModel):
 
 MOTIONS = ("zoom_in", "zoom_out", "pan_left", "pan_right", "pan_up", "pan_down", "still")
 TRANSITIONS = ("fade", "slide", "push", "circle", "black", "zoom", "wipe")
+LOOKS = ("warm", "cool", "bw", "vivid", "soft")              # 색감
+CAPTION_SIZES = ("small", "large")
+CAPTION_POSITIONS = ("top", "center", "bottom")
+STRENGTHS = ("subtle", "strong")                               # 움직임 세기
+MAX_HOLD = 5.0                                                 # 목소리가 끝난 뒤 더 머무는 시간(초)
 
 
 VOICE_KEYS = ("female", "female_bright", "female_calm", "male", "male_deep", "hyunsu",
@@ -37,6 +42,43 @@ class Scene(BaseModel):
     place: str = ""  # 장소 이름표 (예: 통영 동피랑). 비면 표시 안 함
     motion: str = "auto"      # 사진 움직임: auto 또는 MOTIONS 중 하나
     transition: str = "auto"  # 이 장면으로 들어올 때의 전환: auto 또는 TRANSITIONS 중 하나
+
+    # --- 연출: 사용자가 글로 요청하면 AI가 아래 값을 정한다 (app/director.py) ---
+    direction: str = Field(default="", max_length=400)        # 이 장면의 연출 요청
+    direction_done: str = Field(default="", max_length=400)   # 이미 반영한 요청(같으면 다시 AI에 묻지 않음)
+    look: str = "auto"            # 색감: auto(그대로) 또는 LOOKS
+    caption_size: str = "auto"    # 자막 크기: auto 또는 CAPTION_SIZES
+    caption_pos: str = "auto"     # 자막 위치: auto(아래) 또는 CAPTION_POSITIONS
+    strength: str = "auto"        # 움직임 세기: auto 또는 STRENGTHS
+    hold: float = 0.0             # 더 머무는 시간(초)
+
+    @field_validator("look", mode="before")
+    @classmethod
+    def _known_look(cls, v):
+        return v if v in LOOKS else "auto"
+
+    @field_validator("caption_size", mode="before")
+    @classmethod
+    def _known_caption_size(cls, v):
+        return v if v in CAPTION_SIZES else "auto"
+
+    @field_validator("caption_pos", mode="before")
+    @classmethod
+    def _known_caption_pos(cls, v):
+        return v if v in CAPTION_POSITIONS else "auto"
+
+    @field_validator("strength", mode="before")
+    @classmethod
+    def _known_strength(cls, v):
+        return v if v in STRENGTHS else "auto"
+
+    @field_validator("hold", mode="before")
+    @classmethod
+    def _sane_hold(cls, v):
+        try:
+            return round(min(MAX_HOLD, max(0.0, float(v))), 2)
+        except (TypeError, ValueError):
+            return 0.0
 
     @field_validator("motion", mode="before")
     @classmethod
@@ -56,6 +98,8 @@ class VideoScript(BaseModel):
     yt_tags: list[str]
     intro_title: str = ""  # 시작 화면·제목 띠·썸네일에 쓰는 짧은 여행 제목
     intro_sub: str = ""    # 시작 화면 둘째 줄 (지역·기간 등)
+    direction: str = Field(default="", max_length=600)        # 영상 전체에 대한 연출 요청
+    direction_done: str = Field(default="", max_length=600)
 
 
 class RenderOptions(BaseModel):
@@ -90,8 +134,9 @@ class RenderOptions(BaseModel):
         return v
 
 
-Stage = Literal["queued", "scraping", "loaded", "scripting", "ready", "tts", "rendering", "done", "error"]
+Stage = Literal["queued", "scraping", "loaded", "scripting", "ready", "directing", "tts", "rendering", "done", "error"]
 # load: 글·사진만 불러온 상태(아직 작성 방법을 고르지 않음), manual: 직접 작성
+# auto("AI 없이")는 없앴다. 예전에 저장된 작업을 열 수 있게 값만 남겨 둔다.
 ScriptMode = Literal["api", "auto", "gemini", "load", "manual"]
 
 

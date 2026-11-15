@@ -17,7 +17,7 @@ MODELS = ["gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-3.8-flash"]  # �
 
 NO_KEY = "Gemini API 키가 없어요. 설정에서 Gemini API 키를 넣어 주세요."
 BAD_KEY = "Gemini API 키를 확인해 주세요. 설정에서 다시 넣어 주세요."
-QUOTA = "Gemini 무료 사용량(하루 한도)을 다 썼어요. 내일 다시 하거나 'AI 없이(무료)'로 만들어 주세요."
+QUOTA = "Gemini 무료 사용량(하루 한도)을 다 썼어요. 내일 다시 하거나 Claude로 만들어 주세요."
 BUSY = "Gemini 서버가 바빠요. 잠시 뒤 다시 시도해 주세요."
 FAILED = "대본을 만들지 못했어요. 다시 시도해 주세요."
 
@@ -53,7 +53,8 @@ def _client(api_key: str):
     return genai.Client(api_key=api_key, http_options=types.HttpOptions(timeout=TIMEOUT_MS))
 
 
-def generate_script_gemini(post: BlogPost, api_key: str, client=None) -> VideoScript:
+def ask_gemini(system: str, contents, schema: dict, model_cls, api_key: str, client=None, accept=None):
+    """Gemini에게 물어 schema 형식의 답을 받아 model_cls로 읽는다. accept(답)이 거짓이면 한 번 더 묻는다."""
     import httpx2
 
     if client is None:
@@ -61,17 +62,10 @@ def generate_script_gemini(post: BlogPost, api_key: str, client=None) -> VideoSc
             raise UserError(NO_KEY)
         client = _client(api_key)
     cfg = types.GenerateContentConfig(
-        system_instruction=SYSTEM,
+        system_instruction=system,
         response_mime_type="application/json",
-        response_json_schema=SCHEMA,
+        response_json_schema=schema,
     )
-    contents = _user_message(post)
-    photos = photos_for_ai(post)
-    if photos:  # 글 + 사진(번호와 함께)
-        contents = [contents + "\n\n아래에 사진을 번호와 함께 붙입니다."]
-        for i, data in photos:
-            contents.append(f"사진 {i}번")
-            contents.append(types.Part.from_bytes(data=data, mime_type="image/jpeg"))
     last_problem = ""
     bad_json = 0
     models = list(MODELS)
@@ -94,7 +88,7 @@ def generate_script_gemini(post: BlogPost, api_key: str, client=None) -> VideoSc
             last_problem = str(e.code)
             models.pop(0)
             continue
-        except httpx2.TimeoutException as e:  # 60초 넘게 답이 없으면 다음 모델로
+        except httpx2.TimeoutException:  # 60초 넘게 답이 없으면 다음 모델로
             log.warning("gemini %s timed out", model)
             last_problem = "시간 초과"
             models.pop(0)
@@ -104,19 +98,28 @@ def generate_script_gemini(post: BlogPost, api_key: str, client=None) -> VideoSc
 
             raise UserError(describe_network_error(e)) from e
         try:
-            draft = ScriptDraft.model_validate_json(resp.text or "")
+            draft = model_cls.model_validate_json(resp.text or "")
         except ValueError:
             log.warning("gemini %s returned invalid JSON: %.200s", model, resp.text)
-            bad_json += 1
-            if bad_json >= 2:
-                break
-            continue
-        result = draft_to_script(draft, post)
-        if result.scenes:
-            return result
+            draft = None
+        if draft is not None and (accept is None or accept(draft)):
+            return draft
         bad_json += 1
         if bad_json >= 2:
             break
     if last_problem:
         raise UserError(f"{BUSY} (Gemini 오류 {last_problem})")
     raise UserError(FAILED)
+
+
+def generate_script_gemini(post: BlogPost, api_key: str, client=None) -> VideoScript:
+    contents = _user_message(post)
+    photos = photos_for_ai(post)
+    if photos:  # 글 + 사진(번호와 함께)
+        contents = [contents + "\n\n아래에 사진을 번호와 함께 붙입니다."]
+        for i, data in photos:
+            contents.append(f"사진 {i}번")
+            contents.append(types.Part.from_bytes(data=data, mime_type="image/jpeg"))
+    draft = ask_gemini(SYSTEM, contents, SCHEMA, ScriptDraft, api_key, client,
+                       accept=lambda d: bool(d.scenes) and bool(draft_to_script(d, post).scenes))
+    return draft_to_script(draft, post)

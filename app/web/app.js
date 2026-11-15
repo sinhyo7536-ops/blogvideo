@@ -4,10 +4,13 @@ const $ = (id) => document.getElementById(id);
 const VIEWS = ["home", "source", "edit", "progress", "result", "error", "settings"];
 const MODE_KEY = "blogvideo.mode";
 const MODE_HELP = {
-  api: "Claude가 글과 사진을 직접 보고 대본을 써요. 영상 1개당 약 100~300원이 들어요.",
-  auto: "AI 없이 블로그 문장을 순서대로 장면으로 나눠요(사진은 보지 않아요). 무료예요. 다음 화면에서 자막을 다듬어 주세요.",
-  gemini: "Google Gemini가 글과 사진을 직접 보고 대본을 써요. 무료지만 하루 사용 횟수 제한이 있어요. (설정에 Gemini 키 필요)",
+  api: "클로드가 글과 사진을 직접 보고 대본을 써요. 영상 1개당 약 100~300원이 들어요.",
+  gemini: "제미나이가 글과 사진을 직접 보고 대본을 써요. 무료지만 하루 사용 횟수 제한이 있어요.",
 };
+const LOOK_LABEL = { warm: "따뜻한 색감", cool: "시원한 색감", bw: "흑백", vivid: "선명한 색감", soft: "부드러운 색감" };
+const CAPTION_SIZE_LABEL = { large: "자막 크게", small: "자막 작게" };
+const CAPTION_POS_LABEL = { top: "자막 위쪽", center: "자막 가운데", bottom: "자막 아래쪽" };
+const STRENGTH_LABEL = { subtle: "은은한 움직임", strong: "큰 움직임" };
 const TEMPLATE_HELP = {
   clean: "파란 제목 띠와 검은 상자 자막. 어떤 여행 글에도 잘 어울려요.",
   mood: "상자 없는 자막과 천천히 겹치는 전환. 잔잔한 풍경·카페 여행에 좋아요.",
@@ -24,13 +27,14 @@ const TRANSITION_LABEL = {
 const STAGE_LABEL = {
   queued: "순서를 기다리는 중",
   scraping: "글과 사진 불러오는 중",
-  scripting: "대본 쓰는 중",
+  scripting: "AI가 대본 쓰는 중",
+  directing: "AI가 연출을 정하는 중",
   tts: "목소리 만드는 중",
   rendering: "영상 만드는 중",
 };
 const CANCEL_LABEL = {
   queued: "멈추기", scraping: "불러오기 멈추기", scripting: "대본 쓰기 멈추기",
-  tts: "영상 만들기 멈추기", rendering: "영상 만들기 멈추기",
+  directing: "영상 만들기 멈추기", tts: "영상 만들기 멈추기", rendering: "영상 만들기 멈추기",
 };
 const STORE_KEY = "blogvideo.jobId";
 
@@ -111,7 +115,7 @@ function setTemplateHelp() {
 function setMode(mode) {
   setSeg("mode", mode);
   localStorage.setItem(MODE_KEY, mode);
-  $("mode-help").textContent = MODE_HELP[mode] || "";
+  document.querySelectorAll(".mode-help").forEach((el) => { el.textContent = MODE_HELP[mode] || ""; });
 }
 
 // ---------- 초기화 ----------
@@ -119,10 +123,12 @@ async function loadInfo() {
   state.info = await api("GET", "/api/info");
   $("open-settings").classList.toggle("hidden", !state.info.is_local);
   const notice = $("key-notice");
-  const fallback = state.info.has_api_key ? "api" : state.info.has_gemini_key ? "gemini" : "auto";
-  setMode(localStorage.getItem(MODE_KEY) || fallback);
+  const fallback = state.info.has_api_key ? "api" : state.info.has_gemini_key ? "gemini" : "api";
+  const saved = localStorage.getItem(MODE_KEY);
+  const usable = (saved === "api" && state.info.has_api_key) || (saved === "gemini" && state.info.has_gemini_key);
+  setMode(usable ? saved : fallback);
   if (!state.info.has_api_key && !state.info.has_gemini_key) {
-    notice.textContent = "API 키가 없어도 'AI 없이(무료)'로 쓸 수 있어요. Claude나 Gemini를 쓰려면 설정에서 키를 넣어 주세요.";
+    notice.textContent = "AI 키가 아직 없어요. 설정에서 클로드나 제미나이(무료) 키를 넣어 주세요.";
     if (state.info.is_local) {
       const b = document.createElement("button");
       b.type = "button";
@@ -327,18 +333,19 @@ async function cancelJob() {
   }
 }
 
-async function startLoad() {
+// mode: api·gemini = AI가 바로 대본을 씀, manual = 글·사진만 불러와 직접 작성
+async function startLoad(mode) {
   setError("home-error", "");
   const url = $("url").value.trim();
   if (!url) return setError("home-error", "네이버 블로그 글 주소를 넣어 주세요.");
-  const btn = $("btn-load");
-  btn.disabled = true;
+  const buttons = [$("btn-load"), $("btn-home-manual")];
+  buttons.forEach((b) => { b.disabled = true; });
   try {
-    routeJob(await api("POST", "/api/jobs", { url, mode: "load" }));
+    routeJob(await api("POST", "/api/jobs", { url, mode }));
   } catch (e) {
     setError("home-error", e.message);
   } finally {
-    btn.disabled = false;
+    buttons.forEach((b) => { b.disabled = false; });
   }
 }
 
@@ -420,14 +427,6 @@ async function writeScript(mode) {
   }
 }
 
-async function useFreeMode(mode) {
-  try {
-    routeJob(await api("POST", `/api/jobs/${state.job.id}/free-mode`, { mode }));
-  } catch (e) {
-    $("error-message").textContent = e.message;
-  }
-}
-
 // ---------- 장면 편집 ----------
 function openEdit(job) {
   state.script = JSON.parse(JSON.stringify(job.script));
@@ -457,7 +456,8 @@ function openEdit(job) {
   $("edit-title").textContent = manual ? "직접 작성" : "대본 고치기";
   $("edit-hint").textContent = manual
     ? "블로그 글과 사진을 골라 장면을 만들고, 자막을 직접 써 주세요. 자막은 성우가 그대로 읽어요."
-    : "AI가 추천한 장면이에요. 자막·사진·움직임·전환을 마음대로 고쳐 주세요. 자막은 성우가 그대로 읽어요.";
+    : "AI가 글과 사진을 보고 쓴 대본이에요. 자막·사진·움직임·전환을 마음대로 고치고, 원하는 연출은 말로 적어 주세요. 자막은 성우가 그대로 읽어요.";
+  $("direction").value = state.script.direction || "";
   state.selected = null;
   const panel = $("panel-text");
   panel.innerHTML = "";
@@ -570,6 +570,34 @@ function renderScenes() {
     mkSelect(MOTION_LABEL, "motion", "사진 움직임");
     mkSelect(TRANSITION_LABEL, "transition", "장면 전환");
 
+    const want = document.createElement("textarea");
+    want.className = "direction";
+    want.rows = 2;
+    want.maxLength = 400;
+    want.placeholder = "연출 요청 (선택) 예: 천천히 확대하면서 따뜻한 색감으로, 자막 크게";
+    want.value = scene.direction || "";
+    want.setAttribute("aria-label", `장면 ${i + 1} 연출 요청`);
+    want.addEventListener("input", () => { scene.direction = want.value; });
+
+    const applied = document.createElement("div");
+    applied.className = "applied";
+    const chips = appliedLabels(scene);
+    if (chips.length) {
+      const label = document.createElement("span");
+      label.textContent = "AI 연출: " + chips.join(" · ");
+      const reset = document.createElement("button");
+      reset.type = "button";
+      reset.textContent = "되돌리기";
+      reset.title = "색감·자막 크기와 위치·머무는 시간·움직임 세기를 기본으로 되돌리기";
+      reset.onclick = (e) => {
+        e.stopPropagation();
+        Object.assign(scene, { look: "auto", caption_size: "auto", caption_pos: "auto", strength: "auto", hold: 0,
+                               direction_done: "" });
+        renderScenes();
+      };
+      applied.append(label, reset);
+    }
+
     const actions = document.createElement("div");
     actions.className = "scene-actions";
     const act = (label, title, fn) => {
@@ -585,7 +613,7 @@ function renderScenes() {
     act("복제", "이 장면을 똑같이 하나 더 만들기", () => duplicateScene(i));
     act("나누기", "자막의 커서 위치에서 장면을 둘로 나누기", () => splitScene(i, ta));
 
-    li.append(head, thumb, ta, count, place, pickers, actions);
+    li.append(head, thumb, ta, count, place, pickers, want, applied, actions);
     list.appendChild(li);
   });
 }
@@ -615,6 +643,16 @@ function deleteScene(i) {
   state.script.scenes.splice(i, 1);
   state.selected = null;
   renderScenes();
+}
+
+function appliedLabels(scene) {
+  const out = [];
+  if (LOOK_LABEL[scene.look]) out.push(LOOK_LABEL[scene.look]);
+  if (STRENGTH_LABEL[scene.strength]) out.push(STRENGTH_LABEL[scene.strength]);
+  if (CAPTION_SIZE_LABEL[scene.caption_size]) out.push(CAPTION_SIZE_LABEL[scene.caption_size]);
+  if (CAPTION_POS_LABEL[scene.caption_pos]) out.push(CAPTION_POS_LABEL[scene.caption_pos]);
+  if (scene.hold > 0) out.push(`${scene.hold}초 더 머무름`);
+  return out;
 }
 
 function selectScene(i) {
@@ -651,8 +689,7 @@ function addScene(text, imageIndex, at) {
 
 function duplicateScene(i) {
   const s = state.script.scenes[i];
-  state.script.scenes.splice(i + 1, 0, { text: s.text, image_index: s.image_index, place: s.place || "",
-                                         motion: s.motion || "auto", transition: "auto" });
+  state.script.scenes.splice(i + 1, 0, Object.assign({}, s, { transition: "auto" }));
   state.selected = i + 1;
   renderScenes();
   focusScene(i + 1);
@@ -717,7 +754,10 @@ function updateTitleCount() {
 function collectScript() {
   const scenes = state.script.scenes
     .map((s) => ({ text: s.text.trim(), image_index: s.image_index, place: (s.place || "").trim(),
-                   motion: s.motion || "auto", transition: s.transition || "auto" }))
+                   motion: s.motion || "auto", transition: s.transition || "auto",
+                   direction: (s.direction || "").trim(), direction_done: s.direction_done || "",
+                   look: s.look || "auto", caption_size: s.caption_size || "auto",
+                   caption_pos: s.caption_pos || "auto", strength: s.strength || "auto", hold: s.hold || 0 }))
     .filter((s) => s.text);
   return {
     scenes,
@@ -726,6 +766,8 @@ function collectScript() {
     yt_tags: $("yt-tags").value.split(",").map((t) => t.trim().replace(/^#/, "")).filter(Boolean),
     intro_title: $("intro-title").value.trim(),
     intro_sub: $("intro-sub").value.trim(),
+    direction: $("direction").value.trim(),
+    direction_done: state.script.direction_done || "",
   };
 }
 
@@ -800,9 +842,6 @@ document.querySelectorAll("[data-copy]").forEach((b) => {
 // ---------- 오류 ----------
 function openError(job) {
   $("error-message").textContent = job.message || "알 수 없는 오류가 났어요. 다시 시도해 주세요.";
-  const canFree = !!job.post && (job.failed_phase === "prepare" || job.failed_phase === "script") &&
-    (job.mode === "api" || job.mode === "gemini");
-  $("free-options").classList.toggle("hidden", !canFree);
   show("error");
 }
 
@@ -964,9 +1003,10 @@ $("voice").addEventListener("change", () => { $("voice-audio").pause(); });
 document.querySelector('#view-edit .seg[data-name="speed"]').addEventListener("click", () => updateSummary());
 ["opt-intro", "opt-outro"].forEach((id) => $(id).addEventListener("change", () => updateSummary()));
 $("btn-cancel").onclick = cancelJob;
-$("btn-load").onclick = startLoad;
-$("url").addEventListener("keydown", (e) => { if (e.key === "Enter") startLoad(); });
-$("btn-recommend").onclick = () => writeScript(segValue("mode") || "auto");
+$("btn-load").onclick = () => startLoad(segValue("mode") || "api");
+$("btn-home-manual").onclick = () => startLoad("manual");
+$("url").addEventListener("keydown", (e) => { if (e.key === "Enter") startLoad(segValue("mode") || "api"); });
+$("btn-recommend").onclick = () => writeScript(segValue("mode") || "api");
 $("btn-manual").onclick = () => writeScript("manual");
 $("btn-source-back").onclick = () => goHome(true);
 $("btn-rewrite").onclick = () => {
@@ -994,7 +1034,6 @@ $("btn-settings-back").onclick = leaveSettings;
 $("btn-keyed").onclick = makeKeyedInstaller;
 $("btn-save-gemini").onclick = saveGeminiKey;
 $("btn-save-channel").onclick = saveChannelName;
-$("btn-free-auto").onclick = () => useFreeMode("auto");
 $("picker-close").onclick = () => $("picker").close();
 
 // ---------- 앱 창 열림 신호 (창을 닫으면 프로그램이 스스로 꺼짐) ----------

@@ -108,6 +108,11 @@ def draft_to_script(draft: ScriptDraft, post: BlogPost) -> VideoScript:
         yt_title=draft.yt_title, yt_description=draft.yt_description, yt_tags=draft.yt_tags,
         intro_title=draft.intro_title or "", intro_sub=draft.intro_sub or "")
     result = normalize_script(raw, len(post.images))
+    # 장소 이름은 원문에 실제로 나온 것만 남긴다 (AI가 그럴듯한 이름을 지어내 모든 장면에 붙인 적이 있다)
+    source = (post.title + " " + " ".join(post.paragraphs)).replace(" ", "")
+    scenes = [s if not s.place or all(w in source for w in s.place.split()) else s.model_copy(update={"place": ""})
+              for s in result.scenes]
+    result = result.model_copy(update={"scenes": scenes})
     if not result.intro_title:
         result = result.model_copy(update={"intro_title": short_title(post.title.strip() or result.yt_title)})
     return result
@@ -148,12 +153,12 @@ def _claude_content(post: BlogPost):
     return content
 
 
-def generate_script(post: BlogPost, api_key: str, client=None) -> VideoScript:
+def ask_claude(system: str, content, output_format, api_key: str, client=None, accept=None):
+    """Claude에게 물어 정해진 형식(output_format)의 답을 받는다. accept(답)이 거짓이면 한 번 더 묻는다."""
     if client is None:
         if not api_key:
             raise UserError(KEY_MSG)
         client = anthropic.Anthropic(api_key=api_key, timeout=600, max_retries=2)
-    content = _claude_content(post)
     busy = False
     for _ in range(2):
         busy = False
@@ -164,9 +169,9 @@ def generate_script(post: BlogPost, api_key: str, client=None) -> VideoScript:
                 output_config={"effort": "medium"},
                 betas=["server-side-fallback-2026-07-01"],
                 fallbacks="default",
-                system=SYSTEM,
+                system=system,
                 messages=[{"role": "user", "content": content}],
-                output_format=ScriptDraft,
+                output_format=output_format,
             )
         except (anthropic.AuthenticationError, anthropic.PermissionDeniedError) as e:
             raise UserError(KEY_MSG) from e
@@ -188,9 +193,14 @@ def generate_script(post: BlogPost, api_key: str, client=None) -> VideoScript:
                 continue
             continue
         draft = getattr(resp, "parsed_output", None)
-        if resp.stop_reason == "refusal" or draft is None or not draft.scenes:
+        if resp.stop_reason == "refusal" or draft is None:
             continue
-        result = draft_to_script(draft, post)
-        if result.scenes:
-            return result
+        if accept is None or accept(draft):
+            return draft
     raise UserError(BUSY if busy else FAILED)
+
+
+def generate_script(post: BlogPost, api_key: str, client=None) -> VideoScript:
+    draft = ask_claude(SYSTEM, _claude_content(post), ScriptDraft, api_key, client,
+                       accept=lambda d: bool(d.scenes) and bool(draft_to_script(d, post).scenes))
+    return draft_to_script(draft, post)

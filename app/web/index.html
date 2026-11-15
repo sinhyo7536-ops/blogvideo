@@ -20,15 +20,25 @@
     <!-- 1. 블로그 불러오기 -->
     <section id="view-home" class="view hidden">
       <h1>여행 블로그 글로 영상 만들기</h1>
-      <p class="muted">네이버 블로그에 쓴 여행 글 주소를 넣으면 글과 사진을 불러와요. 그다음 AI 추천대로 만들지, 직접 만들지 고를 수 있어요.</p>
+      <p class="muted">네이버 블로그에 쓴 여행 글 주소를 넣으면, AI가 글과 사진을 직접 보고 사진과 내용이 맞는 영상 대본을 바로 써 줘요.</p>
 
       <label class="field">
         <span>네이버 블로그 글 주소</span>
         <input id="url" type="url" inputmode="url" autocomplete="off" placeholder="https://blog.naver.com/...">
       </label>
 
+      <fieldset class="field">
+        <legend>대본을 쓸 AI</legend>
+        <div class="seg" data-name="mode">
+          <button type="button" data-value="api" class="on">클로드(유료)</button>
+          <button type="button" data-value="gemini">제미나이(무료)</button>
+        </div>
+        <p class="muted mode-help"></p>
+      </fieldset>
+
       <p class="error-text hidden" id="home-error" role="alert"></p>
-      <button type="button" class="primary big" id="btn-load">블로그 불러오기</button>
+      <button type="button" class="primary big" id="btn-load">AI로 대본 만들기</button>
+      <button type="button" class="link-btn" id="btn-home-manual">AI 없이 직접 작성하기</button>
     </section>
 
     <!-- 1-2. 불러온 글·사진 확인, 작성 방법 고르기 -->
@@ -45,15 +55,14 @@
       <h2>영상을 어떻게 만들까요?</h2>
       <div class="choice">
         <div class="choice-card">
-          <h3>추천대로 작성</h3>
+          <h3>AI로 대본 만들기</h3>
           <p class="muted">AI가 글과 사진을 보고 장면을 나누고, 장면에 맞는 사진·자막·움직임·전환을 골라 줘요. 만든 뒤에 고칠 수 있어요.</p>
-          <div class="seg stack" data-name="mode">
-            <button type="button" data-value="api" class="on">Claude(유료)</button>
-            <button type="button" data-value="gemini">Gemini(무료)</button>
-            <button type="button" data-value="auto">AI 없이(무료)</button>
+          <div class="seg" data-name="mode">
+            <button type="button" data-value="api" class="on">클로드(유료)</button>
+            <button type="button" data-value="gemini">제미나이(무료)</button>
           </div>
-          <p class="muted" id="mode-help"></p>
-          <button type="button" class="primary big" id="btn-recommend">추천대로 작성</button>
+          <p class="muted mode-help"></p>
+          <button type="button" class="primary big" id="btn-recommend">AI로 대본 만들기</button>
         </div>
         <div class="choice-card">
           <h3>직접 작성</h3>
@@ -147,6 +156,11 @@
         <label><input type="checkbox" id="opt-title-bar"> 제목 띠·장소 이름표 넣기</label>
       </div>
 
+      <h2>연출 요청</h2>
+      <label class="field"><span>영상 전체 연출 요청 <small class="muted">비워 두어도 돼요</small></span>
+        <textarea id="direction" rows="2" maxlength="600" placeholder="예: 전체적으로 잔잔하고 감성적으로, 장면을 천천히 넘겨 줘. 배경음악은 작게."></textarea></label>
+      <p class="muted">장면마다 있는 "연출 요청" 칸에 원하는 것을 말로 적어 두면, <b>영상 만들기</b>를 누를 때 AI가 읽고 사진 움직임·전환·색감·자막 크기와 위치·머무는 시간을 맞춰 줘요. "더 짧게 써 줘"처럼 적으면 그 장면의 자막 글도 고쳐 줘요.</p>
+
       <h2>장면</h2>
       <p class="muted" id="scene-summary"></p>
       <details class="source-panel" id="source-panel">
@@ -211,12 +225,6 @@
     <section id="view-error" class="view hidden">
       <h1>문제가 생겼어요</h1>
       <p class="error-box" id="error-message" role="alert"></p>
-      <div class="free-options hidden" id="free-options">
-        <p><b>무료 방법으로 이어서 할 수 있어요.</b></p>
-        <div class="row">
-          <button type="button" class="primary" id="btn-free-auto">AI 없이 계속하기(무료)</button>
-        </div>
-      </div>
       <div class="row">
         <button type="button" class="primary" id="btn-retry">다시 시도</button>
         <button type="button" class="ghost" id="btn-error-home">처음으로</button>
@@ -235,12 +243,12 @@
       <p class="ok-text hidden" id="settings-ok">저장했어요</p>
 
       <label class="field">
-        <span>Gemini API 키 (무료)</span>
+        <span>제미나이(Gemini) API 키 (무료)</span>
         <input id="gemini-key" type="password" autocomplete="off" placeholder="AIza...">
         <small class="muted" id="gemini-key-current"></small>
         <small class="muted">aistudio.google.com/apikey 에서 무료로 발급받을 수 있어요. 하루 사용 횟수 제한이 있어요.</small>
       </label>
-      <button type="button" class="primary" id="btn-save-gemini">Gemini 키 저장</button>
+      <button type="button" class="primary" id="btn-save-gemini">제미나이 키 저장</button>
       <p class="ok-text hidden" id="gemini-ok">저장했어요</p>
 
       <h2>채널 이름</h2>

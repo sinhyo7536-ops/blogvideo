@@ -107,7 +107,8 @@ TRIP = ScriptDraft(scenes=[SceneDraft(text="통영에 다녀왔어요", image_in
 
 
 def test_generate_keeps_place_and_intro(sample_post):
-    s = generate_script(sample_post, "k", client=FakeClient([resp(TRIP)]))
+    post = sample_post.model_copy(update={"paragraphs": ["통영에 갔어요.", "동피랑 벽화마을이 예뻤어요."]})
+    s = generate_script(post, "k", client=FakeClient([resp(TRIP)]))
     assert [x.place for x in s.scenes] == ["통영 동피랑", ""]
     assert (s.intro_title, s.intro_sub) == ("통영 1박 2일 여행", "가을 · 친구와")
 
@@ -121,13 +122,6 @@ def test_prompt_asks_for_travel_fields():
     from app.script import SYSTEM
 
     assert "여행" in SYSTEM and "place" in SYSTEM and "intro_title" in SYSTEM
-
-
-def test_auto_script_has_intro_title(sample_post):
-    from app.autoscript import auto_script
-
-    s = auto_script(sample_post)
-    assert s.intro_title == "제목" and all(x.place == "" for x in s.scenes)
 
 
 def test_blog_name_is_read_from_post():

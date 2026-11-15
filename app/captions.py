@@ -74,7 +74,8 @@ def _layout(text: str, max_w: int, size: int, min_size: int = MIN_SIZE) -> tuple
         size -= max(2, size // 18)
 
 
-def render_caption_png(text: str, width: int, height: int, out: Path, template: str = "clean") -> Path:
+def render_caption_png(text: str, width: int, height: int, out: Path, template: str = "clean",
+                       size: str = "auto", pos: str = "auto") -> Path:
     """자막 PNG. template: clean(검은 상자) / mood(상자 없이 그림자) / vlog(노란 형광펜)."""
     from app.visuals import template as get_template
 
@@ -82,15 +83,22 @@ def render_caption_png(text: str, width: int, height: int, out: Path, template: 
     text = supported_text(text)
     vertical = height > width
     k = min(width, height) / 1080  # 화질(720p/1080p/1440p)에 맞춰 비율 유지
-    base = round((72 if vertical else 64) * k)
+    base = round((72 if vertical else 64) * k * {"large": 1.3, "small": 0.8}.get(size, 1.0))
     max_w = int(width * 0.88)
     font, lines = _layout(text, max_w - round(40 * k), base, round(MIN_SIZE * k))
     size = font.size
     line_h = int(size * 1.35)
     pad = int(size * 0.45)
     box_h = line_h * len(lines) + pad * 2
-    bottom = int(height * (0.78 if vertical else 0.93))
-    top = bottom - box_h
+    if pos == "top":        # 왼쪽 위 제목 띠·장소 이름표 아래
+        top = int(height * (0.26 if vertical else 0.23))
+        bottom = top + box_h
+    elif pos == "center":
+        top = (height - box_h) // 2
+        bottom = top + box_h
+    else:
+        bottom = int(height * (0.78 if vertical else 0.93))
+        top = bottom - box_h
 
     im = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     d = ImageDraw.Draw(im)
@@ -102,13 +110,14 @@ def render_caption_png(text: str, width: int, height: int, out: Path, template: 
         if tpl.caption == "box":
             d.rounded_rectangle([left, top, left + box_w, bottom], radius=int(size * 0.3), fill=(0, 0, 0, 160))
         elif tpl.caption == "plain":  # 상자 없이: 아래쪽을 살짝 어둡게 + 가는 강조 선
-            shade = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-            sd = ImageDraw.Draw(shade)
-            g_top = max(0, top - line_h)
-            for y in range(g_top, height):
-                sd.line([(0, y), (width, y)], fill=(0, 0, 0, int(150 * (y - g_top) / max(1, height - g_top))))
-            im = Image.alpha_composite(im, shade)
-            d = ImageDraw.Draw(im)
+            if pos not in ("top", "center"):   # 자막이 아래에 있을 때만 아래를 어둡게
+                shade = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+                sd = ImageDraw.Draw(shade)
+                g_top = max(0, top - line_h)
+                for y in range(g_top, height):
+                    sd.line([(0, y), (width, y)], fill=(0, 0, 0, int(150 * (y - g_top) / max(1, height - g_top))))
+                im = Image.alpha_composite(im, shade)
+                d = ImageDraw.Draw(im)
             line_w = int(widest * 0.35)
             y = bottom - pad // 3
             d.line([(width // 2 - line_w // 2, y), (width // 2 + line_w // 2, y)], fill=tpl.accent + (255,),
