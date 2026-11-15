@@ -14,6 +14,8 @@ const TEMPLATE_HELP = {
   clean: "파란 제목 띠와 검은 상자 자막. 어떤 여행 글에도 잘 어울려요.",
   mood: "상자 없는 자막과 천천히 겹치는 전환. 잔잔한 풍경·카페 여행에 좋아요.",
   vlog: "노란 형광펜 자막과 빠른 전환. 맛집·액티비티 여행에 좋아요.",
+  cinema: "영화처럼 위아래 검은 띠, 어두워졌다 밝아지는 느린 전환. 풍경 여행에 좋아요.",
+  essay: "작고 조용한 자막, 사진이 오래 머물고 천천히 넘어가요. 사진이 예쁜 글에 좋아요.",
 };
 const MOTION_LABEL = {
   auto: "움직임: 자동", zoom_in: "천천히 확대", zoom_out: "천천히 축소", pan_left: "왼쪽으로 이동",
@@ -117,6 +119,54 @@ document.querySelectorAll(".seg").forEach((seg) => {
 
 function setTemplateHelp() {
   $("template-help").textContent = TEMPLATE_HELP[segValue("template")] || "";
+}
+
+// ---------- 영상 프리셋 ----------
+async function loadPresets() {
+  const r = await api("GET", "/api/presets");
+  state.presets = r.presets;
+  const box = $("preset-list");
+  box.innerHTML = "";
+  r.presets.forEach((p) => {
+    const b = el("button", "", p.label);
+    b.type = "button";
+    b.dataset.value = p.key;
+    b.onclick = () => applyPreset(p.key);
+    box.appendChild(b);
+  });
+}
+
+function applyPreset(key) {
+  const p = (state.presets || []).find((x) => x.key === key);
+  if (!p) return;
+  const o = p.options;
+  setSeg("preset", key);
+  if (o.template) setSeg("template", o.template);
+  if (o.effects) setSeg("effects", o.effects);
+  if (o.title_bar !== undefined) $("opt-title-bar").checked = o.title_bar;
+  if (o.intro !== undefined) $("opt-intro").checked = o.intro;
+  if (o.outro !== undefined) $("opt-outro").checked = o.outro;
+  $("preset-help").textContent = p.help;
+  setTemplateHelp();
+  updateSummary();
+  markDirty();
+}
+
+function showPreset(key) {
+  const p = (state.presets || []).find((x) => x.key === key);
+  setSeg("preset", p ? key : "");
+  $("preset-help").textContent = p ? p.help : "프리셋을 고르거나, 아래에서 하나씩 정해도 돼요.";
+}
+
+// 스타일을 하나씩 바꾸면 프리셋과 달라졌는지 확인한다
+function presetStillMatches() {
+  const key = segValue("preset");
+  const p = (state.presets || []).find((x) => x.key === key);
+  if (!p) return;
+  const o = p.options;
+  const same = (!o.template || segValue("template") === o.template) && (!o.effects || segValue("effects") === o.effects)
+    && (o.title_bar === undefined || $("opt-title-bar").checked === o.title_bar);
+  if (!same) showPreset("custom");
 }
 
 function setMode(mode) {
@@ -572,6 +622,7 @@ function openEdit(job) {
   setSeg("template", state.options.template || "clean");
   setSeg("effects", state.options.effects || "auto");
   setTemplateHelp();
+  showPreset(state.options.preset || "custom");
   $("intro-title").value = state.script.intro_title || "";
   $("intro-sub").value = state.script.intro_sub || "";
   $("opt-intro").checked = state.options.intro !== false;
@@ -1159,7 +1210,7 @@ function collectOptions() {
            bgm: $("bgm-edit").value || null,
            template: segValue("template") || "clean", effects: segValue("effects") || "auto",
            intro: $("opt-intro").checked, outro: $("opt-outro").checked,
-           title_bar: $("opt-title-bar").checked };
+           title_bar: $("opt-title-bar").checked, preset: segValue("preset") || "custom" };
 }
 
 // ---------- 자동 저장 · 대본 확정 ----------
@@ -1520,6 +1571,13 @@ function openResult(job) {
     $("thumb-img").src = `/api/jobs/${job.id}/thumbnail?v=${job.finished_at || job.created_at}`;
     $("btn-thumb").href = `/api/jobs/${job.id}/thumbnail?download=1`;
   }
+  const info = job.render_info;
+  const reused = info && info.reused;
+  $("render-info").textContent = info
+    ? (reused ? `지난번과 같은 장면 ${info.reused}개는 다시 쓰고, 바뀐 장면 ${info.clips - info.reused}개만 새로 만들었어요. ` : "")
+      + `걸린 시간 ${Math.max(1, Math.round(info.seconds))}초`
+    : "";
+  $("render-info").classList.toggle("hidden", !info);
   $("out-title").textContent = job.script.yt_title;
   $("out-desc").textContent = job.script.yt_description;
   $("out-tags").textContent = job.script.yt_tags.join(", ");
@@ -1803,8 +1861,12 @@ $("btn-version-save").onclick = saveVersion;
   markDirty();
 }));
 $("view-edit").addEventListener("click", (e) => {
-  if (e.target.closest && e.target.closest(".seg button")) markDirty();
+  if (e.target.closest && e.target.closest(".seg button")) {
+    if (!e.target.closest("#preset-list")) presetStillMatches();
+    markDirty();
+  }
 });
+$("opt-title-bar").addEventListener("change", presetStillMatches);
 window.addEventListener("beforeunload", () => { if (state.dirty) saveNow().catch(() => {}); });
 $("btn-add-scene").onclick = () => addScene("", null, state.script.scenes.length);   // 맨 아래에
 $("yt-title").addEventListener("input", updateTitleCount);
@@ -1842,7 +1904,7 @@ window.addEventListener("pagehide", () => {
 (async function init() {
   try {
     loadScriptSettings();
-    await Promise.all([loadInfo(), loadMusic(), loadVoices()]);
+    await Promise.all([loadInfo(), loadMusic(), loadVoices(), loadPresets()]);
   } catch (e) {
     setError("home-error", e.message);
   }

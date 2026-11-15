@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import subprocess
 from dataclasses import dataclass
@@ -79,17 +80,31 @@ def synthesize_all(script: VideoScript, voice_key: str, dest: Path,
     dest.mkdir(parents=True, exist_ok=True)
     voice = VOICE_LIST.get(voice_key) or VOICE_LIST["female"]
     extra = _tuning(voice, speed)
-    total = len(script.scenes)
+    # 같은 글·목소리·속도면 같은 파일 이름 → 다시 만들 때 고친 장면의 목소리만 새로 만든다
+    names = [f"voice_{voice_file_key(sc.text, voice.name, extra)}.mp3" for sc in script.scenes]
+    todo = sorted({n: sc.text for n, sc in zip(names, script.scenes)}.items())
+    total = len(todo)
     done = 0
+    durations: dict[str, float] = {}
+    reused = 0
 
-    async def one(i: int, scene, gate: asyncio.Semaphore):
-        nonlocal done
-        out = dest / f"voice_{i:02d}.mp3"
+    async def one(name: str, text: str, gate: asyncio.Semaphore):
+        nonlocal done, reused
+        out = dest / name
         async with gate:
             for attempt in range(3):
                 try:
-                    await synth(scene.text, voice.name, out, **extra)
-                    duration = await asyncio.to_thread(probe_duration, out)
+                    if out.exists() and out.stat().st_size > 0:
+                        try:
+                            durations[name] = await asyncio.to_thread(probe_duration, out)
+                            reused += 1
+                            break
+                        except Exception:
+                            out.unlink(missing_ok=True)   # 망가진 파일은 새로 만든다
+                    tmp = out.with_name(out.stem + ".part.mp3")
+                    await synth(text, voice.name, tmp, **extra)
+                    durations[name] = await asyncio.to_thread(probe_duration, tmp)
+                    tmp.replace(out)
                     break
                 except Exception:
                     if attempt == 2:
@@ -97,19 +112,30 @@ def synthesize_all(script: VideoScript, voice_key: str, dest: Path,
         done += 1
         if on_progress:
             on_progress(done / total)
-        return scene.model_copy(update={"audio_path": str(out), "duration": round(duration + PAD, 3)})
 
     async def run_all():
         gate = asyncio.Semaphore(PARALLEL)   # 장면이 많은 긴 영상도 빨리 끝나게 몇 개씩 동시에
-        return await asyncio.gather(*(one(i, sc, gate) for i, sc in enumerate(script.scenes)))
+        await asyncio.gather(*(one(n, t, gate) for n, t in todo))
 
     try:
-        scenes = asyncio.run(run_all())
+        asyncio.run(run_all())
+        scenes = [sc.model_copy(update={"audio_path": str(dest / n), "duration": round(durations[n] + PAD, 3)})
+                  for n, sc in zip(names, script.scenes)]
+        keep = set(names)
+        for f in dest.glob("voice_*.mp3"):   # 지금 대본에 없는 예전 목소리는 지운다
+            if f.name not in keep:
+                f.unlink(missing_ok=True)
+        log.info("tts: %d voices, %d reused", total, reused)
     except Exception as e:
         log.warning("tts failed: %s: %s", type(e).__name__, e, exc_info=e)
         cert = "CERTIFICATE" in f"{type(e).__name__} {e}".upper()
         raise UserError(FAILED + (CERT_HINT if cert else "")) from e
     return script.model_copy(update={"scenes": list(scenes)})
+
+
+def voice_file_key(text: str, voice_name: str, extra: dict) -> str:
+    data = "\n".join([text, voice_name, extra.get("rate", "+0%"), extra.get("pitch", "+0Hz")])
+    return hashlib.sha1(data.encode("utf-8")).hexdigest()[:16]
 
 
 def preview(voice_key: str, speed: str, out: Path) -> Path:

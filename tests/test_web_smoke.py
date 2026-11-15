@@ -930,6 +930,40 @@ def test_auto_match_suggests_and_marks_low_scores(tmp_path, monkeypatch, browser
         page.close()
 
 
+# ---------- 7단계: 영상 프리셋, 1:1, 다시 만든 정보 ----------
+def test_preset_sets_style_and_square_option(tmp_path, monkeypatch, browser):
+    m = _start(tmp_path, monkeypatch)
+    real = m.steps.render_video
+
+    def render(post, script, options, workdir, on_progress=None):
+        out = real(post, script, options, workdir, on_progress)
+        (workdir / "stats.json").write_text('{"clips": 6, "reused": 5}', "utf-8")
+        return out
+
+    m.steps.render_video = render
+    for base in _serve(m):
+        page = browser.new_page(viewport={"width": 390, "height": 844})
+        _to_edit(page, base)
+        page.wait_for_selector("#preset-list button")
+        assert page.locator("#preset-list button").count() == 4
+        page.click("#preset-list button:has-text('시네마틱 여행 다큐')")
+        assert page.locator('#view-edit .seg[data-name="template"] button.on').inner_text() == "시네마"
+        assert not page.is_checked("#opt-title-bar") and "검은 띠" in page.inner_text("#preset-help")
+        page.click('#view-edit .seg[data-name="template"] button:has-text("깔끔")')   # 하나 바꾸면 '직접 고름'
+        assert page.locator("#preset-list button.on").count() == 0
+        page.click("#preset-list button:has-text('사진 중심 에세이')")
+        page.click('.seg[data-name="aspect"] button:has-text("정사각형")')
+        page.click("button:has-text('영상 만들기')")
+        page.wait_for_selector("#view-result:not(.hidden)", timeout=10000)
+        o = m.get(page.evaluate("state.job.id")).options
+        assert (o.aspect, o.template, o.preset, o.title_bar) == ("1:1", "essay", "essay", False)
+        assert "바뀐 장면 1개만 새로" in page.inner_text("#render-info")
+        page.click("#btn-reedit")
+        page.wait_for_selector("#view-edit:not(.hidden)")
+        assert page.locator("#preset-list button.on").inner_text() == "사진 중심 에세이"
+        page.close()
+
+
 # ---------- 2단계: AI 모델 설정 화면 ----------
 def test_model_settings_screen(live_server, browser, monkeypatch):
     from app.ai import models as ai

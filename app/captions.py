@@ -83,7 +83,8 @@ def render_caption_png(text: str, width: int, height: int, out: Path, template: 
     text = supported_text(text)
     vertical = height > width
     k = min(width, height) / 1080  # 화질(720p/1080p/1440p)에 맞춰 비율 유지
-    base = round((72 if vertical else 64) * k * {"large": 1.3, "small": 0.8}.get(size, 1.0))
+    base = round((72 if vertical else 64) * k * {"large": 1.3, "small": 0.8}.get(size, 1.0)
+                 * (0.78 if tpl.caption == "minimal" else 1.0))
     max_w = int(width * 0.88)
     font, lines = _layout(text, max_w - round(40 * k), base, round(MIN_SIZE * k))
     size = font.size
@@ -106,7 +107,7 @@ def render_caption_png(text: str, width: int, height: int, out: Path, template: 
         widest = max(font.getlength(l) for l in lines)
         box_w = min(max_w, int(widest) + pad * 2 + round(20 * k))
         left = (width - box_w) // 2
-        stroke = max(2, round(4 * k))
+        stroke = max(1, round(2 * k)) if tpl.caption == "minimal" else max(2, round(4 * k))
         if tpl.caption == "box":
             d.rounded_rectangle([left, top, left + box_w, bottom], radius=int(size * 0.3), fill=(0, 0, 0, 160))
         elif tpl.caption == "plain":  # 상자 없이: 아래쪽을 살짝 어둡게 + 가는 강조 선
@@ -130,6 +131,10 @@ def render_caption_png(text: str, width: int, height: int, out: Path, template: 
                                      width // 2 + lw / 2 + pad * 0.7, y + line_h * 0.46],
                                     radius=int(size * 0.18), fill=tpl.accent + (245,))
                 d.text((width // 2, y), line, font=font, fill=tpl.accent_text, anchor="mm")
+            elif tpl.caption == "minimal":   # 작고 조용한 글자: 옅은 그림자만
+                d.text((width // 2 + stroke, y + stroke), line, font=font, fill=(0, 0, 0, 150), anchor="mm")
+                d.text((width // 2, y), line, font=font, fill=(250, 250, 250, 255), anchor="mm",
+                       stroke_width=stroke, stroke_fill=(0, 0, 0, 120))
             else:
                 d.text((width // 2, y), line, font=font, fill="white", anchor="mm",
                        stroke_width=stroke, stroke_fill="black")

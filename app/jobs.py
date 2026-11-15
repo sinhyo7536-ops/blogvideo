@@ -450,7 +450,14 @@ class JobManager:
         self._set(job_id, script=script, stage="rendering", progress=0.2)
         channel = (self.steps.channel_name() or s.post.blog_name or "").strip()[:40]
         options = s.options.model_copy(update={"channel": channel})
-        out = self.steps.render_video(s.post, script, options, self.dir(job_id) / "render",
+        started = time.time()
+        workdir = self.dir(job_id) / "render"
+        out = self.steps.render_video(s.post, script, options, workdir,
                                       on_progress=lambda p: self._tick(job_id, round(0.2 + 0.8 * p, 3)))
         self._check(job_id)
-        self._set(job_id, stage="done", progress=1.0, video_path=str(out), finished_at=time.time())
+        info = {"seconds": round(time.time() - started, 1)}
+        try:
+            info.update(json.loads((workdir / "stats.json").read_text("utf-8")))
+        except (OSError, ValueError):
+            pass
+        self._set(job_id, stage="done", progress=1.0, video_path=str(out), finished_at=time.time(), render_info=info)

@@ -23,7 +23,8 @@ def test_voices():
 def test_synthesize_all_sets_durations(tmp_path, short_script):
     s = synthesize_all(short_script, "female", tmp_path, synth=fake_synth_1s)
     assert all(abs(x.duration - 1.4) < 0.1 for x in s.scenes)
-    assert [Path(x.audio_path).name for x in s.scenes] == ["voice_00.mp3", "voice_01.mp3"]
+    names = [Path(x.audio_path).name for x in s.scenes]
+    assert len(set(names)) == 2 and all(n.startswith("voice_") and n.endswith(".mp3") for n in names)
     assert all(Path(x.audio_path).exists() for x in s.scenes)
     assert short_script.scenes[0].duration is None  # 원본은 그대로
 

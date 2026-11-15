@@ -13,7 +13,9 @@ from pydantic import BaseModel
 from app.models import (CAPTION_POSITIONS, CAPTION_SIZES, LOOKS, MAX_HOLD, MOTIONS, STRENGTHS, TRANSITIONS,
                         RenderOptions, VideoScript)
 
-TEMPLATES = ("clean", "mood", "vlog")
+from app.visuals import TEMPLATES as _TEMPLATES
+
+TEMPLATES = tuple(_TEMPLATES)
 SPEEDS = ("slow", "normal", "fast")
 KEEP = "keep"
 
@@ -49,7 +51,7 @@ SYSTEM = f"""당신은 여행 영상의 연출 감독입니다. 사용자가 장
 - caption_pos (자막 위치): top, center, bottom
 - hold (목소리가 끝난 뒤 더 머무는 시간, 초): 0 ~ {MAX_HOLD:g}. 바꾸지 않으면 -1
 - text (자막이자 성우가 읽는 글)
-영상 전체: template(clean=깔끔 / mood=감성 / vlog=브이로그), speed(성우 말하기 속도 slow / normal / fast), bgm_volume(배경음악 크기 0~1, 보통 0.15. 바꾸지 않으면 -1)
+영상 전체: template(clean=깔끔 / mood=감성 / vlog=브이로그 / cinema=시네마틱(위아래 검은 띠) / essay=사진 중심 에세이), speed(성우 말하기 속도 slow / normal / fast), bgm_volume(배경음악 크기 0~1, 보통 0.15. 바꾸지 않으면 -1)
 
 규칙:
 - 요청에 나온 것만 바꿉니다. 요청과 상관없는 값은 "{KEEP}"(hold와 bgm_volume은 -1)로 둡니다.

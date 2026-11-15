@@ -5,6 +5,9 @@
 """
 from __future__ import annotations
 
+import hashlib
+import json
+import os
 import subprocess
 import threading
 from dataclasses import dataclass, field
@@ -51,8 +54,31 @@ SUBSCRIBE = "구독과 좋아요 부탁드려요"
 
 def size_for(aspect: str, quality: str) -> tuple[int, int]:
     short = _SHORT_SIDE[quality]
+    if aspect == "1:1":
+        return short, short
     long = short * 16 // 9
     return (long, short) if aspect == "16:9" else (short, long)
+
+
+# ---------- 다시 만들 때 재사용 ----------
+# 장면 조각·배경 사진은 '만드는 데 쓴 모든 값'의 지문으로 이름을 붙여 cache/ 에 둔다. 다음에 만들 때
+# 같은 이름이 있으면 다시 만들지 않는다(글 한 문단만 고치면 그 장면만 새로 만든다).
+CACHE_VERSION = "1"
+
+
+def _digest(*parts) -> str:
+    data = json.dumps([CACHE_VERSION, *parts], ensure_ascii=False, sort_keys=True, default=str)
+    return hashlib.sha1(data.encode("utf-8")).hexdigest()[:20]
+
+
+def _file_id(path: str | Path | None):
+    if not path:
+        return None
+    try:
+        st = os.stat(path)
+    except OSError:
+        return str(path)
+    return [str(Path(path).resolve()), st.st_size, int(st.st_mtime)]
 
 
 def resolve_bgm(name: str | None) -> Path | None:
@@ -115,6 +141,7 @@ class Segment:
     look: str = ""                    # 색감 필터 (LOOK 값). 비면 그대로
     more: list[Path] = field(default_factory=list)      # 이어서 보여 줄 사진 (2배 크기로 준비됨)
     shares: list[float] = field(default_factory=list)   # [bg, *more] 각각 보이는 시간 (합 = duration)
+    key: str = ""             # 이 조각을 만드는 데 쓴 값의 지문 (같으면 예전 조각을 다시 쓴다)
 
 
 def photo_shares(base: float, n: int, secs: list[float] | None = None) -> tuple[list[float], float]:
@@ -172,7 +199,8 @@ def _motion_chain(motion: str, length: float, size: tuple[int, int], zoom: float
     return f"{chain},scale={w}:{h}:flags=lanczos,setsar=1"
 
 
-def _segment_clip(i: int, seg: Segment, length: float, size: tuple[int, int], workdir: Path, log: Path) -> Path:
+def _segment_clip(i: int, seg: Segment, length: float, size: tuple[int, int], workdir: Path, log: Path,
+                  out: Path | None = None) -> Path:
     """소리 없는 영상 조각. length는 뒤 장면과 겹칠 전환 시간을 더한 길이."""
     w, h = size
     L = f"{length:.3f}"
@@ -218,9 +246,11 @@ def _segment_clip(i: int, seg: Segment, length: float, size: tuple[int, int], wo
                   f"[s{n}][cap]overlay=x=0:y='max(0,{rise}*(1-t/{CAPTION_IN}))'[s{n + 1}];")
         n += 1
     graph += f"[s{n}]format=yuv420p[v]"
-    out = workdir / f"seg_{i:02d}.mp4"
+    out = out or workdir / f"seg_{i:02d}.mp4"
+    tmp = out.with_name(out.stem + ".part.mp4")   # 멈추거나 실패해도 반쯤 만든 파일을 다시 쓰지 않게
     _run([*inputs, "-filter_complex", graph, "-map", "[v]", "-an", "-t", L, "-r", str(FPS),
-          "-c:v", "libx264", "-preset", "veryfast", "-crf", "16", "-pix_fmt", "yuv420p", str(out)], log)
+          "-c:v", "libx264", "-preset", "veryfast", "-crf", "16", "-pix_fmt", "yuv420p", str(tmp)], log)
+    tmp.replace(out)
     return out
 
 
@@ -237,6 +267,10 @@ def _build_segments(post: BlogPost, script: VideoScript, options: RenderOptions,
     w, h = size
     big = (w * SUPERSAMPLE, h * SUPERSAMPLE)
     tpl = options.template
+    look_tpl = visuals.template(tpl)
+    cache = workdir / "cache"
+    cache.mkdir(parents=True, exist_ok=True)
+    bars = visuals.letterbox_png(w, h, workdir / "letterbox.png") if look_tpl.letterbox else None
     title = (script.intro_title or script.yt_title or post.title).strip()
     photos = [next((p for x in s.photo_list() if (p := _photo_for(post, x))), None) for s in script.scenes]
     segs: list[Segment] = []
@@ -249,7 +283,8 @@ def _build_segments(post: BlogPost, script: VideoScript, options: RenderOptions,
             except OSError:
                 bg = None
         png = visuals.render_card_png(kind, head, sub, tag, w, h, workdir / f"{kind}.png", tpl)
-        return Segment(duration=seconds, bg=bg, overlays=[png], motion="zoom_in")
+        return Segment(duration=seconds, bg=bg, overlays=[png], motion="zoom_in",
+                       key=_digest("card", kind, _file_id(photo), head, sub, tag, tpl, seconds, size))
 
     if options.intro and title:
         segs.append(card("intro", next((p for p in photos if p), None), INTRO_SEC, title, script.intro_sub, ""))
@@ -261,18 +296,18 @@ def _build_segments(post: BlogPost, script: VideoScript, options: RenderOptions,
             src = _photo_for(post, idx)
             if src:
                 try:
-                    bgs.append(_prepare_bg(src, workdir / (f"bg_{i:02d}.jpg" if k == 0 else f"bg_{i:02d}_{k}.jpg"),
-                                           size))
+                    dest = cache / f"bg_{_digest('bg', _file_id(src), size, SUPERSAMPLE)}.jpg"
+                    bgs.append(dest if dest.exists() else _prepare_bg(src, dest, size))
                 except OSError:
                     pass
         bg = bgs[0] if bgs else None
-        base = round(scene.duration + scene.hold, 3)
+        base = round(scene.duration + scene.hold + look_tpl.extra_hold, 3)
         if len(bgs) > 1:
             secs = scene.photo_secs if len(scene.photo_secs) == len(scene.photo_list()) else []
             shares, length = photo_shares(base, len(bgs), secs if len(bgs) == len(scene.photo_list()) else [])
         else:
             shares, length = [], base
-        overlays = []
+        overlays = [bars] if bars and bg is not None else []
         if options.title_bar and (title or scene.place):
             overlays.append(visuals.render_overlay_png(title, scene.place, w, h, workdir / f"overlay_{i:02d}.png", tpl))
         caption = render_caption_png(scene.text, w, h, workdir / f"caption_{i:02d}.png", tpl,
@@ -281,10 +316,14 @@ def _build_segments(post: BlogPost, script: VideoScript, options: RenderOptions,
             motion = scene.motion
         else:
             motion = "zoom_in" if options.effects == "soft" else MOTIONS[i % len(MOTIONS)]
+        zoom = STRENGTH.get(scene.strength, look_tpl.zoom)
+        key = _digest("scene", [_file_id(b) for b in bgs], shares, length, size, motion, zoom, scene.look,
+                      [options.title_bar, title, scene.place, tpl, bool(bars and bg is not None)],
+                      [scene.text, scene.caption_size, scene.caption_pos])
         segs.append(Segment(duration=length, bg=bg, more=bgs[1:], shares=shares, overlays=overlays,
                             caption=caption, audio=scene.audio_path, motion=motion,
                             transition=XFADE.get(scene.transition, ""),
-                            zoom=STRENGTH.get(scene.strength, ZOOM), look=LOOK.get(scene.look, "")))
+                            zoom=zoom, look=LOOK.get(scene.look, ""), key=key))
         if on_step:   # 사진 준비도 오래 걸릴 수 있어 장면마다 알린다(진행률 표시, 멈추기 확인)
             on_step((i + 1) / len(script.scenes))
     if options.outro:
@@ -411,10 +450,22 @@ def render_video(post: BlogPost, script: VideoScript, options: RenderOptions, wo
     cross = min(SOFT_SEC if soft else tpl.transition_sec, min(s.duration for s in segs) / 2)
     transitions = visuals.SOFT if soft else tpl.transitions
     clips = []
+    cache = workdir / "cache"
+    reused = 0
     for i, seg in enumerate(segs):
         length = seg.duration + (cross if i < len(segs) - 1 else 0.0)
-        clips.append(_segment_clip(i, seg, length, size, workdir, log))
+        dest = cache / f"seg_{_digest(seg.key, round(length, 3))}.mp4" if seg.key else None
+        if dest is not None and dest.exists() and dest.stat().st_size > 0:
+            clips.append(dest)           # 지난번과 똑같은 장면: 다시 만들지 않는다
+            reused += 1
+        else:
+            clips.append(_segment_clip(i, seg, length, size, workdir, log, out=dest))
         report(round(0.1 + 0.6 * (i + 1) / len(segs), 3))
+    keep = {c.name for c in clips}
+    for f in cache.glob("seg_*.mp4"):    # 이번에 쓰지 않은 예전 조각은 지운다(디스크 절약)
+        if f.name not in keep:
+            f.unlink(missing_ok=True)
+    (workdir / "stats.json").write_text(json.dumps({"clips": len(clips), "reused": reused}), "utf-8")
 
     out = workdir / "output.mp4"
     _join(clips, segs, cross, transitions, resolve_bgm(options.bgm), options.bgm_volume, out, log,

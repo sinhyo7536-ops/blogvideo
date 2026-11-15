@@ -166,13 +166,14 @@ class VideoScript(BaseModel):
 
 
 class RenderOptions(BaseModel):
-    aspect: Literal["16:9", "9:16"] = "16:9"
+    aspect: Literal["16:9", "9:16", "1:1"] = "16:9"
     voice: str = "female"                                   # VOICE_KEYS 중 하나 (목록은 app/tts.py)
     speed: Literal["slow", "normal", "fast"] = "normal"     # 말하는 속도
     quality: Literal["720p", "1080p", "1440p"] = "1080p"
     bgm: str | None = None
     bgm_volume: float = Field(default=0.15, ge=0.0, le=1.0)
-    template: Literal["clean", "mood", "vlog"] = "clean"   # 깔끔 / 감성 / 브이로그
+    template: Literal["clean", "mood", "vlog", "cinema", "essay"] = "clean"   # 깔끔 / 감성 / 브이로그 / 시네마 / 에세이
+    preset: Literal["custom", "cinematic", "vlog", "info", "essay"] = "custom"  # 마지막으로 고른 영상 프리셋
     effects: Literal["auto", "soft"] = "auto"              # 전환·움직임: 다양하게 / 부드럽게
     intro: bool = True       # 시작 화면
     outro: bool = True       # 끝 화면
@@ -233,6 +234,7 @@ class JobState(BaseModel):
     script: VideoScript | None = None
     analysis: dict | None = None        # AI 여행 분석 (app.ai.analyze.TravelAnalysis)
     settings: ScriptSettings = Field(default_factory=ScriptSettings)
+    render_info: dict | None = None     # 마지막 영상 만들기: 걸린 시간, 장면 조각 수, 다시 쓴 조각 수
     confirmed: str = ""                 # 사용자가 '대본 확정'을 누른 대본의 지문 (고치면 달라져 다시 확정해야 함)
     options: RenderOptions = Field(default_factory=RenderOptions)
     video_path: str | None = None

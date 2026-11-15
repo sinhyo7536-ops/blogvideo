@@ -384,6 +384,14 @@ def create_app(manager: JobManager | None = None) -> FastAPI:
             raise UserError(UNKNOWN)
         return {"name": manager.steps.fetch_music(url, user_music_dir()), "builtin": False}
 
+    @app.get("/api/presets")
+    def presets():
+        """영상 프리셋 (스타일·전환·제목 띠 등을 한 번에)."""
+        from app.visuals import PRESETS
+
+        return {"presets": [{"key": k, "label": v["label"], "help": v["help"], "options": v["options"]}
+                            for k, v in PRESETS.items()]}
+
     @app.get("/api/voices")
     def voices():
         from app.tts import VOICE_LIST

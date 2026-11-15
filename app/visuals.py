@@ -17,9 +17,12 @@ class Template:
     label: str
     accent: RGB            # 제목 띠·강조 색
     accent_text: RGB       # 강조 색 위의 글자 색
-    caption: str           # box | plain | highlight
+    caption: str           # box | plain | highlight | minimal
     transitions: tuple[str, ...]   # FFmpeg xfade 종류 (장면마다 돌아가며 사용)
     transition_sec: float
+    letterbox: bool = False   # 위아래 검은 띠 (영화 화면처럼, 가로 영상에서만)
+    zoom: float = 0.10        # 사진 움직임 기본 세기
+    extra_hold: float = 0.0   # 장면마다 목소리 뒤에 더 머무는 시간(초)
 
 
 TEMPLATES: dict[str, Template] = {
@@ -29,7 +32,38 @@ TEMPLATES: dict[str, Template] = {
                      ("fade", "fadeblack", "fade", "dissolve"), 0.8),
     "vlog": Template("vlog", "브이로그", (255, 214, 10), (20, 20, 20), "highlight",
                      ("slideleft", "circleopen", "slideup", "smoothright", "slidedown"), 0.4),
+    "cinema": Template("cinema", "시네마", (212, 175, 55), (20, 20, 20), "plain",
+                       ("fadeblack", "dissolve", "fade", "fadeblack"), 1.0, letterbox=True, zoom=0.06),
+    "essay": Template("essay", "에세이", (250, 250, 250), (40, 40, 40), "minimal",
+                      ("fade", "dissolve"), 1.2, zoom=0.05, extra_hold=0.8),
 }
+
+# 영상 프리셋: 스타일·전환·제목 띠 등을 한 번에 정한다. 고른 뒤에도 하나씩 바꿀 수 있다.
+PRESETS: dict[str, dict] = {
+    "cinematic": {"label": "시네마틱 여행 다큐", "help": "위아래 검은 띠와 느린 전환, 은은한 움직임. 풍경이 멋진 여행에 좋아요.",
+                  "options": {"template": "cinema", "effects": "soft", "title_bar": False, "intro": True,
+                              "outro": True}},
+    "vlog": {"label": "감성 브이로그", "help": "상자 없는 자막과 부드러운 전환. 일상·카페 여행에 좋아요.",
+             "options": {"template": "mood", "effects": "auto", "title_bar": True, "intro": True, "outro": True}},
+    "info": {"label": "정보 전달형", "help": "또렷한 자막 상자, 제목 띠와 장소 이름표. 맛집·코스 소개에 좋아요.",
+             "options": {"template": "clean", "effects": "auto", "title_bar": True, "intro": True, "outro": True}},
+    "essay": {"label": "사진 중심 에세이", "help": "작은 자막, 사진이 오래 머물고 천천히 넘어가요. 사진이 예쁜 글에 좋아요.",
+              "options": {"template": "essay", "effects": "soft", "title_bar": False, "intro": True, "outro": True}},
+}
+
+
+def letterbox_png(width: int, height: int, out: Path) -> Path | None:
+    """위아래 검은 띠 (2.39:1 영화 화면). 세로·정사각형 영상에는 넣지 않는다."""
+    if width <= height:
+        return None
+    bar = max(0, round((height - width / 2.39) / 2))
+    im = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
+    d.rectangle([0, 0, width, bar], fill=(0, 0, 0, 255))
+    d.rectangle([0, height - bar, width, height], fill=(0, 0, 0, 255))
+    out.parent.mkdir(parents=True, exist_ok=True)
+    im.save(out)
+    return out
 SOFT = ("fade",)
 THUMB_SIZE = (1280, 720)
 

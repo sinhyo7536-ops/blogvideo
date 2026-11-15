@@ -104,6 +104,7 @@
         <div class="seg small" data-name="aspect">
           <button type="button" data-value="16:9">가로</button>
           <button type="button" data-value="9:16">세로</button>
+          <button type="button" data-value="1:1">정사각형</button>
         </div>
         <div class="seg small" data-name="quality">
           <button type="button" data-value="720p">720p</button>
@@ -154,11 +155,18 @@
         <p class="error-text hidden" id="bgm-error" role="alert"></p>
         <audio id="bgm-audio" class="hidden"></audio>
       </fieldset>
+      <fieldset class="field presets-box">
+        <legend>영상 프리셋 <small class="muted">고르면 아래 스타일·전환·제목 띠가 한 번에 맞춰져요</small></legend>
+        <div class="seg stack" data-name="preset" id="preset-list"></div>
+        <p class="muted" id="preset-help"></p>
+      </fieldset>
       <div class="edit-options style-options">
         <div class="seg small" data-name="template">
           <button type="button" data-value="clean">깔끔</button>
           <button type="button" data-value="mood">감성</button>
           <button type="button" data-value="vlog">브이로그</button>
+          <button type="button" data-value="cinema">시네마</button>
+          <button type="button" data-value="essay">에세이</button>
         </div>
         <div class="seg small" data-name="effects">
           <button type="button" data-value="auto">전환 다양하게</button>
@@ -243,6 +251,7 @@
     <!-- 4. 결과 -->
     <section id="view-result" class="view hidden">
       <h1>영상이 완성됐어요!</h1>
+      <p class="muted hidden" id="render-info"></p>
       <video id="video" controls playsinline preload="metadata"></video>
       <a class="primary big as-btn" id="btn-download" download>영상 저장</a>
       <div class="thumb-box hidden" id="thumb-box">
