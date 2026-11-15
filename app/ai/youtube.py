@@ -114,4 +114,4 @@ def generate(script: VideoScript, post: BlogPost | None, analysis, options: Rend
     return {"titles": _clean_list(d.titles, 5, 100), "description": desc, "hashtags": tags,
             "hashtag_text": " ".join("#" + t for t in tags),
             "thumbnail_texts": _clean_list(d.thumbnail_texts, 3, 20), "keywords": _clean_list(d.keywords, 10, 40),
-            "chapters": [{"at": at, "label": label} for at, label in marks]}
+            "chapters": [{"at": round(at, 1), "label": label} for at, label in marks]}
