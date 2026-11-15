@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 
 import anthropic
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.errors import UserError
 from app.models import MOTIONS, TRANSITIONS, BlogPost, Scene, VideoScript
@@ -20,8 +20,9 @@ BUSY = "AI 서버가 바빠요. 잠시 뒤 다시 시도해 주세요."
 SLOW = "AI 응답이 늦어요. 잠시 뒤 다시 시도해 주세요."
 
 
-MAX_PHOTOS = 30     # AI에게 보여 줄 사진 수 (더 많으면 고르게 뽑는다)
+MAX_PHOTOS = 80     # AI에게 보여 줄 사진 수 (더 많으면 고르게 뽑는다). 예전엔 30장이라 사진 많은 글에서 빠진 사진이 생겼다
 PHOTO_SIDE = 768    # 보여 줄 때의 긴 변 크기
+MANY_SIDE = 512     # 사진이 30장보다 많으면 작게 (요청 크기·비용)
 
 
 class SceneDraft(BaseModel):
@@ -31,6 +32,7 @@ class SceneDraft(BaseModel):
     motion: str = "auto"
     transition: str = "auto"
     section: str = ""
+    paragraphs: list[int] = Field(default_factory=list)   # 이 장면 내용이 나온 문단 번호 (1부터) → 사진을 그 근처로 고정
 
 
 class ScriptDraft(BaseModel):
@@ -58,6 +60,7 @@ body·place·review는 장소 순서에 따라 섞여 나와도 됩니다.
 - 각 장면의 text는 화면 자막이자 성우가 읽을 문장입니다. 1~2문장, 40자 안팎. 문장은 성우가 읽기 좋게 짧게 끊습니다.
 - 원문에 없는 사실(가격, 날짜, 수치, 연락처, 장소 이름, 메뉴)과 블로그에 없는 경험·감정을 지어내지 않습니다. 여행 분석에서 "추론"으로 표시된 내용은 단정하지 말고, 필요하면 빼거나 조심스러운 표현으로만 씁니다.
 - 분량은 요청의 "분량" 지시를 따릅니다. "글 전체"이면 글의 모든 내용을 처음부터 끝까지 순서대로 빠짐없이 담고(요약·건너뛰기 금지, 광고 문구·지도 안내·해시태그 나열만 뺌), 목표 시간이 있으면 그 길이에 맞게 중요한 장소와 경험 위주로 고릅니다.
+- paragraphs에는 그 장면 내용이 나온 본문 문단 번호([번호])를 적습니다. 블로그는 보통 글 몇 줄 다음에 그 글의 사진이 나오므로, image_index는 원칙적으로 그 문단 바로 뒤(또는 바로 앞)에 있는 사진("사진 위치" 참고) 중에서 고릅니다. 프로그램도 멀리 떨어진 사진은 그 문단 근처 사진으로 바꿉니다.
 - 사진이 첨부되어 있으면 사진을 직접 보고, 각 장면의 내용에 가장 잘 맞는 사진의 번호를 image_index에 넣습니다. 사진은 되도록 모두 한 번씩 쓰고, 장면이 사진보다 많을 때만 이어지는 장면에 같은 사진을 다시 씁니다. 글의 흐름과 사진 순서가 어긋나지 않게 합니다. 첨부되지 않은 번호의 사진은 앞뒤 번호 사진 사이에 찍힌 것으로 보고 고릅니다.
 - 사진이 첨부되지 않았으면 0부터 (사진 개수 - 1) 사이에서 그 장면 내용과 가장 가까운 위치의 번호를 고릅니다. 사진이 0장이면 0을 씁니다.
 - motion은 그 사진에 어울리는 움직임입니다: zoom_in(인물·음식·간판처럼 가운데를 강조), zoom_out(넓은 풍경을 드러냄), pan_left / pan_right(옆으로 긴 풍경·거리), pan_up / pan_down(높은 건물·탑·폭포), still(글자가 많은 안내판·메뉴판). 같은 움직임이 세 번 이상 이어지지 않게 합니다.
@@ -70,6 +73,8 @@ body·place·review는 장소 순서에 따라 섞여 나와도 됩니다.
 def short_title(title: str, limit: int = 22) -> str:
     """블로그 제목을 시작 화면·제목 띠에 넣기 좋게 줄인다: [말머리] 제거, ' - '·'|' 뒤 버림, 낱말 단위로 자름."""
     t = re.sub(r"^(\s*[\[\(【][^\]\)】]{0,20}[\]\)】])+\s*", "", " ".join(title.split()))
+    # 앞에 붙은 날짜("2026. 10. 11.(일)", "2026-10-11")는 뺀다: 짧은 제목 자리를 날짜가 차지하지 않게
+    t = re.sub(r"^\d{4}\s*[.\-/]\s*\d{1,2}\s*[.\-/]\s*\d{1,2}\.?\s*(\([월화수목금토일]\))?\s*", "", t) or t
     t = re.split(r"\s+[-|:~]\s+|\s*\|\s*", t)[0].strip() or " ".join(title.split())
     if len(t) <= limit:
         return t
@@ -158,10 +163,36 @@ def writing_brief(settings=None, voice: str = "female", analysis=None) -> str:
     return "\n".join(lines)
 
 
+def pin_photo(choice: int | None, paragraphs: list[int], post: BlogPost, used: set[int]) -> int | None:
+    """장면이 나온 문단(1부터 센 번호) 근처의 사진이 아니면 근처 사진으로 바꾼다.
+    근처 = 그 문단들 바로 앞 문단 뒤 ~ 바로 다음 문단 뒤에 있는 사진. 그 문단들 바로 뒤의 사진, 아직 안 쓴 사진이 먼저."""
+    q = [p - 1 for p in paragraphs if 0 <= p - 1 < len(post.paragraphs)]
+    if not q:
+        return choice
+    lo, hi = min(q), max(q)
+    near = [i for i, im in enumerate(post.images) if lo - 1 <= im.para <= hi + 1]
+    if not near or choice in near:
+        return choice
+    core = [i for i in near if lo <= post.images[i].para <= hi]
+    for pool in (core, near):
+        for i in pool:
+            if i not in used:
+                return i
+    return (core or near)[0]
+
+
 def draft_to_script(draft: ScriptDraft, post: BlogPost) -> VideoScript:
+    used: set[int] = set()
+    scenes = []
+    for s in draft.scenes:
+        # 오프닝(후킹)은 일부러 가장 눈길을 끄는 사진을 앞으로 가져오므로 그대로 둔다
+        idx = s.image_index if s.section == "opening" else pin_photo(s.image_index, s.paragraphs, post, used)
+        if idx is not None:
+            used.add(idx)
+        scenes.append(Scene(text=s.text, image_index=idx, place=s.place or "",
+                            motion=s.motion, transition=s.transition, section=s.section))
     raw = VideoScript(
-        scenes=[Scene(text=s.text, image_index=s.image_index, place=s.place or "",
-                      motion=s.motion, transition=s.transition, section=s.section) for s in draft.scenes],
+        scenes=scenes,
         yt_title=draft.yt_title, yt_description=draft.yt_description, yt_tags=draft.yt_tags,
         intro_title=draft.intro_title or "", intro_sub=draft.intro_sub or "")
     result = normalize_script(raw, len(post.images))
@@ -175,11 +206,13 @@ def draft_to_script(draft: ScriptDraft, post: BlogPost) -> VideoScript:
     return result
 
 
-def photos_for_ai(post: BlogPost, limit: int = MAX_PHOTOS, side: int = PHOTO_SIDE) -> list[tuple[int, bytes]]:
+def photos_for_ai(post: BlogPost, limit: int = MAX_PHOTOS, side: int | None = None) -> list[tuple[int, bytes]]:
     """AI에게 보여 줄 사진: (사진 번호, 작은 JPEG). 내려받은 파일이 있는 것만, 많으면 고르게 뽑는다."""
     from PIL import Image, ImageOps
 
     have = [i for i, im in enumerate(post.images) if im.local_path and Path(im.local_path).exists()]
+    if side is None:
+        side = PHOTO_SIDE if len(have) <= 30 else MANY_SIDE
     if len(have) > limit:
         step = len(have) / limit
         have = [have[int(k * step)] for k in range(limit)]

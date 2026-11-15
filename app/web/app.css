@@ -345,3 +345,9 @@ button.photo:hover, button.photo:focus-visible { border-color: var(--primary); }
 .check.info { background: #f5f5f7; }
 .check .icon { font-weight: 700; width: 1.2rem; text-align: center; }
 .check span:nth-child(2) { flex: 1 1 220px; }
+
+/* 처음 화면: 블로그 글 그대로 / AI로 대본 */
+.start-option { display: grid; gap: .4rem; margin: .8rem 0; }
+.start-option p { margin: 0; }
+.ai-option { border-top: 1px solid var(--line); padding-top: .9rem; margin-top: 1.2rem; }
+.option-title { margin: 0; font-size: 1.1rem; }

@@ -138,9 +138,9 @@ def _to_edit(page, base):
 
 
 def _to_manual(page, base):
-    """'AI 없이 직접 작성하기' → 장면이 빈 직접 작성 화면."""
+    """장면이 빈 '직접 작성' 화면. 화면의 버튼은 없앴지만(2026-11-15) 예전 프로젝트는 이 상태로 열린다."""
     _open(page, base)
-    page.click("#btn-home-manual")
+    page.evaluate("api('POST', '/api/jobs', {url: document.getElementById('url').value, mode: 'manual'}).then(routeJob)")
     page.wait_for_selector("#edit-title:has-text('직접 작성')", timeout=10000)
 
 
@@ -350,7 +350,9 @@ def test_loaded_post_shows_photos_text_and_two_choices(live_server, browser):
     assert page.inner_text("#source-meta") == "사진 1장 · 글 1문단"
     assert page.locator("#source-photos .photo").count() == 1
     assert page.locator("#source-text p").count() == 1
-    assert page.is_visible("#btn-recommend") and page.is_visible("#btn-manual")
+    assert page.is_visible("#btn-text-source") and page.is_visible("#btn-recommend")
+    assert page.locator("#btn-manual").count() == 0
+    assert page.locator("#btn-text-source").bounding_box()["y"] <= page.locator("#btn-recommend").bounding_box()["y"]
     assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
 
 
@@ -398,10 +400,11 @@ def test_choose_writing_method_again(live_server, browser):
     page.wait_for_selector("#view-source:not(.hidden)")
     seen = []
     page.on("dialog", lambda d: (seen.append(d.message), d.accept()))
-    page.click("#btn-manual")
-    page.wait_for_selector("#edit-title:has-text('직접 작성')", timeout=5000)
+    page.click("#btn-text-source")
+    page.wait_for_selector("#edit-title:has-text('블로그 글 그대로')", timeout=5000)
     assert seen and "새로" in seen[0]
-    assert page.locator(".scene-card").count() == 0
+    assert page.locator(".scene-card").count() == 1
+    assert page.input_value(".scene-card textarea:not(.direction) >> nth=0") == "p"
 
 
 # ---------- 목소리 넓히기, 유튜브 링크 배경음악, 예상 길이 ----------
@@ -546,7 +549,7 @@ def test_photos_do_not_overlap_and_are_numbered(tmp_path, monkeypatch, browser, 
         assert len(boxes) == 7 and not _overlapping(boxes)
         assert all(b[3] - b[1] > 60 for b in boxes)                      # 찌그러진 칸 없음
         assert page.locator("#source-photos .photo .num").all_inner_texts() == [str(i) for i in range(1, 8)]
-        page.click("#btn-manual")
+        page.evaluate("writeScript('manual')")                             # 예전 직접 작성 프로젝트
         page.wait_for_selector("#edit-title:has-text('직접 작성')")
         page.click("#panel-photos .photo >> nth=2")                       # 사진 3으로 장면 만들기
         page.wait_for_selector(".scene-card")
@@ -656,18 +659,33 @@ def test_stop_button_while_loading_goes_home(tmp_path, monkeypatch, browser):
 
 
 # ---------- 링크 → AI가 바로 대본, 연출 요청, 'AI 없이' 제거 ----------
-def test_home_offers_two_ais_and_small_manual_button(live_server, browser):
+def test_home_offers_text_first_then_ai(live_server, browser):
     page = browser.new_page(viewport={"width": 390, "height": 844})
     page.goto(live_server)
     page.wait_for_selector("#btn-load")
     assert page.locator('#view-home .seg[data-name="mode"]').count() == 0 and page.locator("text=제미나이").count() == 0
-    assert page.inner_text("#btn-load") == "AI로 대본 만들기" and page.is_visible("#btn-home-manual")
-    assert page.locator("text=AI 없이(무료)").count() == 0 and page.locator("#btn-free-auto").count() == 0
+    assert page.inner_text("#btn-text") == "블로그 텍스트 그대로 가져오기"
+    assert page.inner_text("#btn-load") == "AI로 대본 만들기"
+    assert page.locator("#btn-home-manual").count() == 0                 # 직접 작성 버튼은 없앰 (2026-11-15)
+    text_box = page.locator("#btn-text").bounding_box()
+    ai_box = page.locator("#btn-load").bounding_box()
+    settings = page.locator(".script-settings").bounding_box()
+    assert text_box["y"] < settings["y"] < ai_box["y"]                   # 글 그대로 → (AI 설정) → AI 버튼
     assert "사진" in page.inner_text("#view-home .mode-help")
-    box = page.locator("#btn-home-manual").bounding_box()
-    big = page.locator("#btn-load").bounding_box()
-    assert box["height"] < big["height"] and box["y"] > big["y"]          # 아래에 작게
     assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+
+
+def test_text_button_makes_script_from_blog_as_is(live_server, browser):
+    page = browser.new_page(viewport={"width": 1280, "height": 800})
+    page.goto(live_server)
+    page.click("#btn-text")                                              # 주소 없이 누르면 안내
+    assert "주소" in page.inner_text("#home-error")
+    page.fill("#url", "https://blog.naver.com/a/1")
+    assert not page.is_visible("#home-error")                            # 주소를 넣으면 안내가 사라짐
+    page.click("#btn-text")
+    page.wait_for_selector("#edit-title:has-text('블로그 글 그대로')", timeout=10000)
+    assert page.input_value(".scene-card textarea:not(.direction) >> nth=0") == "p"
+    assert _job(page)["mode"] == "text"
 
 
 def test_link_then_ai_writes_without_extra_step(live_server, browser):
@@ -1012,7 +1030,7 @@ def test_several_urls_failed_post_retry_and_photo_upload(tmp_path, monkeypatch, 
         page.fill("#url", "https://blog.naver.com/a/1")
         page.click("#btn-more-urls")
         page.fill("#more-urls", "https://blog.naver.com/b/2")
-        page.click("#btn-home-manual")
+        page.click("#btn-text")
         page.wait_for_selector("#view-edit:not(.hidden)")
         assert page.is_visible("#source-list")                              # 못 불러온 글이 있으면 펼쳐 둠
         assert "못 불러옴" in page.inner_text("#source-list") and "전체공개" in page.inner_text("#source-list")

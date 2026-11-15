@@ -37,10 +37,11 @@ class FakeClaude:
 def test_scene_photo_fields_are_cleaned():
     s = Scene(text="a", image_index=2, more_images=[3, 3, -1, "x", 2, 4, 5, 6, 7, 8, 9, 10],
               photo_secs=[1, "2", -3, 99, None], photo_score=150, photo_alts=[1, -2, 3])
-    assert s.more_images == [3, 2, 4, 5, 6, 7]
+    assert s.more_images == [3, 2, 4, 5, 6, 7, 8, 9, 10]
     assert s.photo_secs == [1.0, 2.0, 0.0, 30.0, 0.0]
     assert s.photo_score == 100 and s.photo_alts == [1, 3]
-    assert s.photo_list() == [2, 3, 4, 5, 6, 7]          # 첫 사진과 같은 번호는 한 번만
+    assert s.photo_list() == [2, 3, 4, 5, 6, 7, 8, 9, 10]   # 첫 사진과 같은 번호는 한 번만
+    assert len(Scene(text="a", image_index=0, more_images=list(range(1, 40))).more_images) == 14
     assert Scene(text="a", image_index=None, more_images=[1]).photo_list() == [1]
     old = Scene.model_validate({"text": "a", "image_index": 0})   # 예전 대본
     assert old.more_images == [] and old.photo_score == -1

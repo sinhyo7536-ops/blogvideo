@@ -33,7 +33,7 @@ CAPTION_SIZES = ("small", "large")
 CAPTION_POSITIONS = ("top", "center", "bottom")
 STRENGTHS = ("subtle", "strong")                               # 움직임 세기
 MAX_HOLD = 5.0                                                 # 목소리가 끝난 뒤 더 머무는 시간(초)
-MAX_MORE_IMAGES = 6                                            # 한 장면에 함께 보여 줄 사진 (첫 사진 말고)
+MAX_MORE_IMAGES = 14                                           # 한 장면에 함께 보여 줄 사진 (첫 사진 말고)
 MAX_PHOTO_SEC = 30.0
 
 
@@ -202,7 +202,7 @@ Stage = Literal["queued", "scraping", "loaded", "analyzing", "scripting", "ready
                 "done", "error"]
 # load: 글·사진만 불러온 상태(아직 작성 방법을 고르지 않음), manual: 직접 작성
 # auto("AI 없이")와 gemini(제미나이)는 없앴다. 예전에 저장된 작업을 열 수 있게 값만 남겨 둔다.
-ScriptMode = Literal["api", "auto", "gemini", "load", "manual"]
+ScriptMode = Literal["api", "auto", "gemini", "load", "manual", "text"]   # text: 블로그 텍스트 그대로 (app.textscript)
 
 
 SCRIPT_STYLES = {

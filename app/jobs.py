@@ -348,6 +348,15 @@ class JobManager:
         if mode == "manual":
             return self._set(job_id, mode="manual", script=blank_script(s.post), stage="ready", progress=1.0,
                              message="", failed_phase=None)
+        if mode == "text":
+            from app.textscript import text_script
+
+            script = text_script(s.post)
+            if s.script is not None and s.script.scenes:
+                self._snapshot(job_id, s.script, "다시 쓰기 전")
+            self._snapshot(job_id, script, "블로그 글 그대로")
+            return self._set(job_id, mode="text", script=script, stage="ready", progress=1.0, message="",
+                             failed_phase=None)
         s = self._set(job_id, mode=mode, stage="queued", progress=0.0, message="", failed_phase=None)
         self._queue.put((job_id, "script"))
         return s
@@ -437,8 +446,15 @@ class JobManager:
         if mode == "load":   # 불러오기만: 작성 방법은 사용자가 고른다
             self._set(job_id, post=post, stage="loaded", progress=1.0)
             return
-        if mode == "manual":   # 직접 작성: AI 없이 빈 대본으로 바로 편집
+        if mode == "manual":   # 직접 작성: AI 없이 빈 대본으로 바로 편집 (화면에서는 없앴고, 예전 작업용)
             self._set(job_id, post=post, script=blank_script(post), stage="ready", progress=1.0)
+            return
+        if mode == "text":     # 블로그 텍스트 그대로: 문단 → 장면, 문단 뒤 사진 → 그 장면 (AI 없음)
+            from app.textscript import text_script
+
+            script = text_script(post)
+            self._snapshot(job_id, script, "블로그 글 그대로")
+            self._set(job_id, post=post, script=script, stage="ready", progress=1.0)
             return
         self._set(job_id, post=post)
         self._write(job_id)

@@ -490,7 +490,7 @@ async function startLoad(mode) {
   if (!url) return setError("home-error", "네이버 블로그 글 주소를 넣어 주세요.");
   const urls = $("more-urls").value.split(/\s+/).map((u) => u.trim()).filter(Boolean);
   if (urls.length > 9) return setError("home-error", "함께 넣을 글은 9개까지예요.");
-  const buttons = [$("btn-load"), $("btn-home-manual")];
+  const buttons = [$("btn-text"), $("btn-load")];
   buttons.forEach((b) => { b.disabled = true; });
   try {
     saveScriptSettings();
@@ -596,7 +596,7 @@ async function writeScript(mode) {
   setError("source-error", "");
   if (state.job.script && state.job.script.scenes.length &&
       !confirm("지금까지 만든 장면을 지우고 새로 만들까요?")) return;
-  const buttons = [$("btn-recommend"), $("btn-manual")];
+  const buttons = [$("btn-text-source"), $("btn-recommend")];
   buttons.forEach((b) => { b.disabled = true; });
   try {
     saveScriptSettings();
@@ -635,10 +635,13 @@ function openEdit(job) {
   $("yt-tags").value = state.script.yt_tags.join(", ");
   updateTitleCount();
   const manual = job.mode === "manual";
-  $("edit-title").textContent = manual ? "직접 작성" : "대본 고치기";
+  const asIs = job.mode === "text";
+  $("edit-title").textContent = manual ? "직접 작성" : asIs ? "블로그 글 그대로" : "대본 고치기";
   $("edit-hint").textContent = manual
     ? "블로그 글과 사진을 골라 장면을 만들고, 자막을 직접 써 주세요. 자막은 성우가 그대로 읽어요."
-    : "AI가 글과 사진을 보고 쓴 대본이에요. 자막·사진·움직임·전환을 마음대로 고치고, 원하는 연출은 말로 적어 주세요. 자막은 성우가 그대로 읽어요.";
+    : asIs
+      ? "블로그 글을 그대로 장면으로 나눴어요. 장면마다 블로그에서 그 글 바로 뒤에 있던 사진이 붙어 있어요. 자막은 성우가 그대로 읽어요. 필요하면 'AI로 고치기'로 다듬을 수 있어요."
+      : "AI가 글과 사진을 보고 쓴 대본이에요. 자막·사진·움직임·전환을 마음대로 고치고, 원하는 연출은 말로 적어 주세요. 자막은 성우가 그대로 읽어요.";
   $("direction").value = state.script.direction || "";
   state.selected = null;
   const panel = $("panel-text");
@@ -1071,7 +1074,7 @@ function pick(idx) {
     if (scene.image_index === null || scene.image_index === undefined) scene.image_index = idx;
     else {
       scene.more_images = (scene.more_images || []).concat([idx]);
-      if ((scene.more_images || []).length >= 6) $("picker").close();
+      if ((scene.more_images || []).length >= 14) $("picker").close();
     }
     scene.photo_secs = [];
     openPickerGrid();
@@ -2160,10 +2163,11 @@ document.querySelector('#view-edit .seg[data-name="speed"]').addEventListener("c
 ["opt-intro", "opt-outro"].forEach((id) => $(id).addEventListener("change", () => updateSummary()));
 $("btn-cancel").onclick = cancelJob;
 $("btn-load").onclick = () => startLoad("api");
-$("btn-home-manual").onclick = () => startLoad("manual");
-$("url").addEventListener("keydown", (e) => { if (e.key === "Enter") startLoad("api"); });
+$("btn-text").onclick = () => startLoad("text");
+$("url").addEventListener("keydown", (e) => { if (e.key === "Enter") startLoad("text"); });   // 엔터는 무료인 쪽
+$("url").addEventListener("input", () => setError("home-error", ""));   // 주소를 넣으면 '주소를 넣어 주세요'를 지운다
 $("btn-recommend").onclick = () => writeScript("api");
-$("btn-manual").onclick = () => writeScript("manual");
+$("btn-text-source").onclick = () => writeScript("text");
 $("btn-source-back").onclick = () => goHome(true);
 $("btn-rewrite").onclick = () => {
   state.job.script = collectScript();   // 지금 장면 수를 기준으로 덮어쓰기 전에 한 번 물어본다

@@ -95,12 +95,12 @@ class CreateJob(BaseModel):
     url: str
     urls: list[str] = Field(default_factory=list, max_length=10)   # 함께 합칠 다른 글 주소
     options: RenderOptions = RenderOptions()
-    mode: Literal["api", "load", "manual"] = "api"   # load: 글·사진만, manual: 불러온 뒤 바로 직접 작성
+    mode: Literal["api", "load", "manual", "text"] = "api"   # load: 글·사진만, text: 블로그 글 그대로, manual: 빈 대본
     settings: ScriptSettings = ScriptSettings()
 
 
 class WriteMode(BaseModel):
-    mode: Literal["api", "manual"]
+    mode: Literal["api", "manual", "text"]
     settings: ScriptSettings | None = None
     reanalyze: bool = False
 

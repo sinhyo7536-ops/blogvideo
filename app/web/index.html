@@ -20,7 +20,7 @@
     <!-- 1. 블로그 불러오기 -->
     <section id="view-home" class="view hidden">
       <h1>여행 블로그 글로 영상 만들기</h1>
-      <p class="muted">네이버 블로그에 쓴 여행 글 주소를 넣으면, AI가 글과 사진을 직접 보고 사진과 내용이 맞는 영상 대본을 바로 써 줘요.</p>
+      <p class="muted">네이버 블로그에 쓴 여행 글 주소를 넣고, 블로그 글을 그대로 쓸지 AI가 새로 쓸지 골라 주세요.</p>
 
       <label class="field">
         <span>네이버 블로그 글 주소</span>
@@ -30,6 +30,15 @@
       <label class="field hidden" id="more-urls-box"><span>함께 넣을 글 주소 <small class="muted">한 줄에 하나씩, 최대 9개. 1박 2일을 두 글로 썼을 때처럼요</small></span>
         <textarea id="more-urls" rows="3" placeholder="https://blog.naver.com/...&#10;https://blog.naver.com/..."></textarea></label>
 
+      <p class="error-text hidden" id="home-error" role="alert"></p>
+
+      <div class="start-option">
+        <button type="button" class="primary big" id="btn-text">블로그 텍스트 그대로 가져오기</button>
+        <p class="muted">블로그 글을 그대로 성우가 읽고, 블로그에서 그 글 바로 뒤에 있던 사진이 함께 나와요. AI를 쓰지 않아 무료예요.</p>
+      </div>
+
+      <div class="start-option ai-option">
+      <h2 class="option-title">AI로 대본 만들기</h2>
       <details class="field script-settings" open>
         <summary>대본 설정</summary>
         <fieldset class="field">
@@ -64,10 +73,8 @@
         </div>
       </details>
       <p class="muted mode-help"></p>
-
-      <p class="error-text hidden" id="home-error" role="alert"></p>
-      <button type="button" class="primary big" id="btn-load">AI로 대본 만들기</button>
-      <button type="button" class="link-btn" id="btn-home-manual">AI 없이 직접 작성하기</button>
+      <button type="button" class="ghost big" id="btn-load">AI로 대본 만들기</button>
+      </div>
 
       <section class="projects hidden" id="projects">
         <h2>내 프로젝트</h2>
@@ -90,15 +97,15 @@
       <h2>영상을 어떻게 만들까요?</h2>
       <div class="choice">
         <div class="choice-card">
+          <h3>블로그 텍스트 그대로</h3>
+          <p class="muted">블로그 글을 그대로 장면으로 나누고, 블로그에서 그 글 바로 뒤에 있던 사진을 붙여요. AI를 쓰지 않아 무료예요.</p>
+          <button type="button" class="primary big" id="btn-text-source">블로그 텍스트 그대로 가져오기</button>
+        </div>
+        <div class="choice-card">
           <h3>AI로 대본 만들기</h3>
           <p class="muted">AI가 글과 사진을 보고 장면을 나누고, 장면에 맞는 사진·자막·움직임·전환을 골라 줘요. 만든 뒤에 고칠 수 있어요.</p>
           <p class="muted mode-help"></p>
-          <button type="button" class="primary big" id="btn-recommend">AI로 대본 만들기</button>
-        </div>
-        <div class="choice-card">
-          <h3>직접 작성</h3>
-          <p class="muted">사진과 글을 직접 골라 장면을 하나씩 만들어요. 자막도 원하는 대로 직접 써요.</p>
-          <button type="button" class="ghost big" id="btn-manual">직접 작성</button>
+          <button type="button" class="ghost big" id="btn-recommend">AI로 대본 만들기</button>
         </div>
       </div>
       <p class="error-text hidden" id="source-error" role="alert"></p>
