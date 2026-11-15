@@ -226,6 +226,9 @@ class ScriptSettings(BaseModel):
 class JobState(BaseModel):
     id: str
     url: str
+    name: str = Field(default="", max_length=80)        # 프로젝트 이름 (비면 글 제목)
+    urls: list[str] = Field(default_factory=list)       # 합쳐서 만드는 글 주소들 (비면 url 하나)
+    sources: list[dict] = Field(default_factory=list)   # 글마다 불러온 결과 (app.projects.source)
     stage: Stage = "queued"
     mode: ScriptMode = "api"
     progress: float = 0.0

@@ -488,11 +488,13 @@ async function startLoad(mode) {
   setError("home-error", "");
   const url = $("url").value.trim();
   if (!url) return setError("home-error", "네이버 블로그 글 주소를 넣어 주세요.");
+  const urls = $("more-urls").value.split(/\s+/).map((u) => u.trim()).filter(Boolean);
+  if (urls.length > 9) return setError("home-error", "함께 넣을 글은 9개까지예요.");
   const buttons = [$("btn-load"), $("btn-home-manual")];
   buttons.forEach((b) => { b.disabled = true; });
   try {
     saveScriptSettings();
-    routeJob(await api("POST", "/api/jobs", { url, mode, settings: scriptSettings() }));
+    routeJob(await api("POST", "/api/jobs", { url, urls, mode, settings: scriptSettings() }));
   } catch (e) {
     setError("home-error", e.message);
   } finally {
@@ -652,6 +654,7 @@ function openEdit(job) {
   });
   $("source-panel").open = manual;
   renderAnalysis(job);
+  renderSources(job);
   state.opening = true;
   renderScenes();
   state.opening = false;
@@ -1815,9 +1818,148 @@ function goHome(clear) {
     localStorage.removeItem(STORE_KEY);
     state.job = null;
     $("url").value = "";
+    $("more-urls").value = "";
   }
   setError("home-error", "");
   show("home");
+  loadProjects();
+}
+
+// ---------- 내 프로젝트 ----------
+const PROJECT_STAGE = { loaded: "글 불러옴", ready: "대본 고치는 중", done: "영상 완성", error: "멈춤·오류" };
+
+async function loadProjects() {
+  let jobs = [];
+  try {
+    jobs = (await api("GET", "/api/jobs")).jobs;
+  } catch (e) {
+    return;
+  }
+  const list = $("project-list");
+  list.innerHTML = "";
+  $("projects").classList.toggle("hidden", !jobs.length);
+  jobs.forEach((j) => {
+    const li = el("li", "project");
+    const open = el("button", "project-open");
+    open.type = "button";
+    open.appendChild(el("b", "", j.name || "(이름 없음)"));
+    const when = new Date((j.finished_at || j.created_at) * 1000).toLocaleDateString("ko-KR",
+      { month: "numeric", day: "numeric" });
+    const bits = [PROJECT_STAGE[j.stage] || STAGE_LABEL[j.stage] || j.stage, when];
+    if (j.posts > 1) bits.push(`글 ${j.posts}편`);
+    if (j.scenes) bits.push(`장면 ${j.scenes}개`);
+    open.appendChild(el("span", "muted", bits.join(" · ")));
+    open.onclick = () => openProject(j.id);
+    const tools = el("div", "project-tools");
+    const rename = el("button", "ghost small", "이름 바꾸기");
+    rename.type = "button";
+    rename.onclick = () => renameProject(j);
+    const del = el("button", "ghost small danger", "삭제");
+    del.type = "button";
+    del.onclick = () => deleteProject(j);
+    tools.append(rename, del);
+    li.append(open, tools);
+    list.appendChild(li);
+  });
+}
+
+async function openProject(id) {
+  try {
+    state.job = { id };
+    routeJob(await api("GET", `/api/jobs/${id}`));
+  } catch (e) {
+    setError("home-error", e.message);
+  }
+}
+
+async function renameProject(j) {
+  const name = prompt("새 이름을 적어 주세요.", j.name || "");
+  if (name === null || !name.trim()) return;
+  try {
+    await api("PATCH", `/api/jobs/${j.id}`, { name: name.trim() });
+    loadProjects();
+  } catch (e) {
+    setError("home-error", e.message);
+  }
+}
+
+async function deleteProject(j) {
+  if (!confirm(`'${j.name}' 프로젝트를 지울까요? 대본과 영상이 모두 지워지고 되돌릴 수 없어요.`)) return;
+  try {
+    await api("DELETE", `/api/jobs/${j.id}`);
+    loadProjects();
+  } catch (e) {
+    setError("home-error", e.message);
+  }
+}
+
+// ---------- 불러온 글 목록, 다시 불러오기, 사진 올리기 ----------
+const SOURCE_STATUS = { ok: "불러옴", error: "못 불러옴", duplicate: "같은 글이라 뺌" };
+
+function renderSources(job) {
+  const list = $("source-list");
+  list.innerHTML = "";
+  const sources = job.sources || [];
+  sources.forEach((x, k) => {
+    const li = el("li", "source " + x.status);
+    li.appendChild(el("span", "source-status " + x.status, SOURCE_STATUS[x.status] || x.status));
+    li.appendChild(el("b", "", ` ${k + 1}. ${x.title || x.url}`));
+    if (x.status === "ok") {
+      const extra = [`문단 ${x.paragraphs}`, `사진 ${x.photos}장`];
+      if (x.missing) extra.push(`못 받은 사진 ${x.missing}장`);
+      if (x.duplicates) extra.push(`겹친 사진 ${x.duplicates}장 뺌`);
+      li.appendChild(el("div", "muted", extra.join(" · ")));
+    } else {
+      li.appendChild(el("div", "muted", x.message || ""));
+    }
+    list.appendChild(li);
+  });
+  const failed = sources.filter((x) => x.status === "error").length;
+  $("btn-retry-sources").classList.toggle("hidden", !failed);
+  const photos = (job.post && job.post.images.length) || 0;
+  $("sources-summary").textContent = `불러온 글 ${sources.filter((x) => x.status === "ok").length || 1}편 · 사진 ${photos}장`
+    + (failed ? ` · 못 불러온 글 ${failed}편` : "");
+  $("sources-panel").open = failed > 0;
+  setError("sources-error", "");
+}
+
+async function retrySources() {
+  try {
+    await saveNow();
+    routeJob(await api("POST", `/api/jobs/${state.job.id}/sources/retry`));
+  } catch (e) {
+    setError("sources-error", e.message);
+  }
+}
+
+async function uploadPhotos() {
+  const files = [...$("photo-upload").files];
+  $("photo-upload").value = "";
+  if (!files.length) return;
+  setError("sources-error", "");
+  let added = 0;
+  const errors = [];
+  for (const f of files) {
+    const form = new FormData();
+    form.append("file", f);
+    try {
+      const r = await fetch(`/api/jobs/${state.job.id}/photos`, { method: "POST", body: form });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.message || "사진을 올리지 못했어요.");
+      state.job.post = data.post;
+      added += 1;
+    } catch (e) {
+      errors.push(`${f.name}: ${e.message}`);
+    }
+  }
+  if (errors.length) setError("sources-error", errors.join(" / "));
+  if (added) {
+    renderSources(state.job);
+    state.opening = true;
+    renderScenes();
+    state.opening = false;
+    toast(`사진 ${added}장을 올렸어요. 장면의 사진을 눌러 고를 수 있어요.`);
+  }
 }
 
 $("s-ratio").addEventListener("input", showRatio);
@@ -1842,6 +1984,13 @@ $("btn-rewrite").onclick = () => {
   openSource(state.job);
 };
 $("btn-render").onclick = startRender;
+$("btn-more-urls").onclick = () => {
+  $("more-urls-box").classList.remove("hidden");
+  $("btn-more-urls").classList.add("hidden");
+  $("more-urls").focus();
+};
+$("btn-retry-sources").onclick = retrySources;
+$("photo-upload").addEventListener("change", uploadPhotos);
 $("btn-confirm").onclick = confirmScript;
 $("btn-overview").onclick = openOverview;
 $("btn-overview-close").onclick = () => $("overview-dialog").close();
@@ -1857,7 +2006,7 @@ $("btn-versions-close").onclick = () => $("versions-dialog").close();
 $("btn-version-save").onclick = saveVersion;
 // 편집 화면에서 무엇이든 바꾸면 잠시 뒤 저절로 저장
 ["input", "change"].forEach((ev) => $("view-edit").addEventListener(ev, (e) => {
-  if (e.target.closest && e.target.closest("#yt-url, #bgm-upload")) return;
+  if (e.target.closest && e.target.closest("#yt-url, #bgm-upload, #photo-upload")) return;
   markDirty();
 }));
 $("view-edit").addEventListener("click", (e) => {
@@ -1920,4 +2069,5 @@ window.addEventListener("pagehide", () => {
   }
   setTemplateHelp();
   show("home");
+  loadProjects();
 })();

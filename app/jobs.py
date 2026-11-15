@@ -19,6 +19,10 @@ from app.models import BlogPost, JobState, RenderOptions, VideoScript
 log = logging.getLogger(__name__)
 
 UNKNOWN = "알 수 없는 오류가 났어요. 다시 시도해 주세요."
+NO_POSTS = "글을 하나도 불러오지 못했어요. 주소를 확인하고 다시 시도해 주세요."
+BAD_PHOTO = "사진 파일을 열 수 없어요. JPG나 PNG 사진을 올려 주세요."
+SAME_PHOTO = "이미 들어 있는 사진이에요."
+NOTHING_TO_RETRY = "다시 불러올 글이 없어요."
 INTERRUPTED = "작업이 중간에 멈췄어요. 다시 시도해 주세요."
 BUSY = "지금은 바꿀 수 없어요. 진행 중인 작업이 끝난 뒤 다시 해 주세요."
 NO_SCRIPT = "대본이 아직 없어요."
@@ -86,6 +90,7 @@ class JobManager:
         self._jobs: dict[str, JobState] = {}
         self._queue: queue.Queue = queue.Queue()
         self._cancel: set[str] = set()
+        self._return: dict[str, str] = {}   # 글 다시 불러오기가 끝나면 돌아갈 단계
         self._load()
         self._worker = threading.Thread(target=self._run, daemon=True, name="job-worker")
         self._worker.start()
@@ -98,6 +103,11 @@ class JobManager:
             except ValueError:
                 continue
             if s.stage in _ACTIVE:
+                if s.stage == "scraping" and s.script is not None:
+                    # 실패한 글 다시 불러오기 중에 꺼졌다: 대본은 그대로 두고 편집 화면으로
+                    self._jobs[s.id] = s = s.model_copy(update={"stage": "ready", "progress": 1.0})
+                    self._save(s)
+                    continue
                 if s.stage in ("directing", "tts", "rendering") or (s.stage == "queued" and s.script):
                     phase = "render"
                 else:
@@ -143,8 +153,14 @@ class JobManager:
         return self.root / job_id
 
     # ---------- 공개 동작 ----------
-    def create(self, url: str, options: RenderOptions, mode: str = "api", settings=None) -> JobState:
-        s = JobState(id=uuid.uuid4().hex[:12], url=url, options=options, mode=mode)
+    def create(self, url: str, options: RenderOptions, mode: str = "api", settings=None,
+               urls: list[str] | None = None) -> JobState:
+        all_urls = []
+        for u in [url, *(urls or [])]:      # 똑같은 주소는 한 번만
+            if u and u not in all_urls:
+                all_urls.append(u)
+        s = JobState(id=uuid.uuid4().hex[:12], url=all_urls[0], options=options, mode=mode,
+                     urls=all_urls if len(all_urls) > 1 else [])
         if settings is not None:
             s = s.model_copy(update={"settings": settings})
         with self._lock:
@@ -304,7 +320,9 @@ class JobManager:
         with self._lock:
             self._cancel.discard(job_id)
         s = self.get(job_id)
-        if phase == "render":
+        if phase == "sources":
+            self._set(job_id, stage=self._return.pop(job_id, "ready"), progress=1.0, message="")
+        elif phase == "render":
             self._set(job_id, stage="ready", progress=1.0, message="", failed_phase=None)
         elif s.post is not None:
             self._set(job_id, stage="loaded", progress=1.0, message="", failed_phase=None)
@@ -372,6 +390,8 @@ class JobManager:
                 self._prepare(job_id)
             elif phase == "script":
                 self._write(job_id)
+            elif phase == "sources":
+                self._retry_sources(job_id)
             else:
                 self._render(job_id)
         except Cancelled:
@@ -387,12 +407,25 @@ class JobManager:
             self._set(job_id, stage="error", message=UNKNOWN, failed_phase=phase)
 
     def _prepare(self, job_id: str) -> None:
+        from app.projects import merged_title, source
+
         s = self._set(job_id, stage="scraping", progress=0.0)
-        post = self.steps.fetch_post(s.url)
-        self._set(job_id, progress=0.15)
-        self._check(job_id)
-        post = self.steps.download_images(post, self.dir(job_id) / "images")
-        self._check(job_id)
+        if not s.urls:
+            post = self.steps.fetch_post(s.url)
+            self._set(job_id, progress=0.15)
+            self._check(job_id)
+            post = self.steps.download_images(post, self.dir(job_id) / "images")
+            self._check(job_id)
+            self._set(job_id, sources=[source(s.url, "ok", post)], name=s.name or post.title[:80])
+        else:
+            post, sources = self._fetch_many(job_id, s.urls, None, [])
+            if post is None:
+                self._set(job_id, sources=sources)
+                errors = [x["message"] for x in sources if x["status"] == "error"]
+                raise UserError(errors[0] if len(errors) == 1 else NO_POSTS)
+            titles = [x["title"] for x in sources if x["status"] == "ok"]
+            post = post.model_copy(update={"title": merged_title(titles)})
+            self._set(job_id, sources=sources, name=s.name or post.title[:80])
         mode = self.get(job_id).mode
         if mode == "load":   # 불러오기만: 작성 방법은 사용자가 고른다
             self._set(job_id, post=post, stage="loaded", progress=1.0)
@@ -402,6 +435,128 @@ class JobManager:
             return
         self._set(job_id, post=post)
         self._write(job_id)
+
+    # ---------- 여러 글 ----------
+    def _fetch_many(self, job_id: str, urls: list[str], base, known: list) -> tuple:
+        """글을 하나씩 불러와 붙인다. 실패한 글·같은 글은 건너뛰고 결과에 적는다."""
+        from app.projects import DUP_POST, append_post, post_fingerprint, source
+
+        post = base
+        sources = []
+        seen = set()
+        added = 0      # 합친 글 번호는 실제로 들어간 글 기준 (빠진 글·같은 글은 세지 않음)
+        if base is not None:
+            seen.update(x.get("fp") for x in self.get(job_id).sources if x.get("fp"))
+            added = sum(1 for x in self.get(job_id).sources if x.get("status") == "ok")
+        dest = self.dir(job_id) / "images"
+        for k, url in enumerate(urls):
+            self._check(job_id)
+            self._set(job_id, progress=round(0.9 * k / len(urls), 3))
+            try:
+                one = self.steps.fetch_post(url)
+            except UserError as e:
+                sources.append(source(url, "error", message=e.message))
+                continue
+            except Exception:
+                log.exception("fetch failed: %s", url)
+                sources.append(source(url, "error", message="글을 불러오지 못했어요. 잠시 뒤 다시 시도해 주세요."))
+                continue
+            fp = post_fingerprint(one)
+            if fp in seen:
+                sources.append(source(url, "duplicate", one, DUP_POST) | {"fp": fp})
+                continue
+            seen.add(fp)
+            self._check(job_id)
+            one = self.steps.download_images(one, dest, known=known)
+            added += 1
+            post = append_post(post, one, added, multi=True)
+            sources.append(source(url, "ok", one) | {"fp": fp})
+        return post, sources
+
+    def retry_sources(self, job_id: str) -> JobState:
+        """불러오지 못한 글만 다시 불러와 뒤에 붙인다(대본은 그대로, 새 글은 '블로그 글·사진에서 가져오기'에 보임)."""
+        s = self.get(job_id)
+        if s.stage in _ACTIVE or s.post is None:
+            raise UserError(BUSY)
+        if not any(x.get("status") == "error" for x in s.sources):
+            raise UserError(NOTHING_TO_RETRY)
+        self._return[job_id] = "ready" if s.script is not None else "loaded"
+        s = self._set(job_id, stage="scraping", progress=0.0, message="")
+        self._queue.put((job_id, "sources"))
+        return s
+
+    def _retry_sources(self, job_id: str) -> None:
+        from app.scraper.naver import image_hash
+
+        s = self.get(job_id)
+        failed = [x["url"] for x in s.sources if x.get("status") == "error"]
+        known = []
+        for im in s.post.images:   # 이미 있는 사진과 겹치는 사진은 빼려고 지문을 모은다
+            try:
+                h = image_hash(Path(im.local_path).read_bytes()) if im.local_path else None
+            except OSError:
+                h = None
+            if h is not None:
+                known.append(h)
+        post, results = self._fetch_many(job_id, failed, s.post, known)
+        by_url = {x["url"]: x for x in results}
+        sources = [by_url.get(x["url"], x) if x.get("status") == "error" else x for x in self.get(job_id).sources]
+        changed = post is not s.post
+        update = {"sources": sources, "stage": self._return.pop(job_id, "ready"), "progress": 1.0}
+        if changed:
+            update.update(post=post, analysis=None)   # 글이 늘었으니 다음 AI 작업 때 다시 분석
+        self._set(job_id, **update)
+
+    def add_photo(self, job_id: str, data: bytes, name: str = "") -> JobState:
+        """사진 직접 올리기: 블로그에서 못 받은 사진이나 다른 사진을 더한다."""
+        import io
+
+        from PIL import Image, ImageOps
+
+        from app.models import ImageRef
+        from app.scraper.naver import image_hash, same_photo
+
+        s = self.get(job_id)
+        if s.stage in _ACTIVE or s.post is None:
+            raise UserError(BUSY)
+        h = image_hash(data)
+        if h is None:
+            raise UserError(BAD_PHOTO)
+        for im in s.post.images:
+            try:
+                other = image_hash(Path(im.local_path).read_bytes()) if im.local_path else None
+            except OSError:
+                other = None
+            if other is not None and same_photo(h, other):
+                raise UserError(SAME_PHOTO)
+        dest = self.dir(job_id) / "images"
+        dest.mkdir(parents=True, exist_ok=True)
+        n = len(list(dest.glob("upload_*.jpg")))
+        path = dest / f"upload_{n:02d}.jpg"
+        with Image.open(io.BytesIO(data)) as img:   # 어떤 형식이든 JPG로 (회전 정보 반영, 너무 크면 줄임)
+            img = ImageOps.exif_transpose(img).convert("RGB")
+            img.thumbnail((4000, 4000))
+            img.save(path, quality=92)
+        ref = ImageRef(url=f"upload:{Path(name).name or path.name}", local_path=str(path), para=-1, post=-1)
+        post = s.post.model_copy(update={"images": list(s.post.images) + [ref]})
+        return self._set(job_id, post=post)
+
+    # ---------- 프로젝트 ----------
+    def list_jobs(self) -> list[JobState]:
+        with self._lock:
+            return sorted(self._jobs.values(), key=lambda x: x.created_at, reverse=True)
+
+    def rename(self, job_id: str, name: str) -> JobState:
+        self.get(job_id)
+        return self._set(job_id, name=" ".join(name.split())[:80])
+
+    def delete(self, job_id: str) -> None:
+        s = self.get(job_id)
+        if s.stage in _ACTIVE:
+            raise UserError(BUSY)
+        with self._lock:
+            self._jobs.pop(job_id, None)
+        shutil.rmtree(self.dir(job_id), ignore_errors=True)
 
     def _write(self, job_id: str) -> None:
         s = self.get(job_id)

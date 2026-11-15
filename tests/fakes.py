@@ -16,7 +16,7 @@ def fake_steps(delay=0.0, fail_fetch_times=0, key="sk-ant-test1234"):
             raise UserError("글을 읽을 수 없어요. 전체공개 글인지 확인해 주세요.")
         return BlogPost(title="제목: 테스트/글", paragraphs=["p"], images=[ImageRef(url="i0")], url=url)
 
-    def download_images(post, dest):
+    def download_images(post, dest, known=None):
         dest.mkdir(parents=True, exist_ok=True)
         p = dest / "img_00.jpg"
         p.write_bytes(b"\xff\xd8fake")

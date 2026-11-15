@@ -964,6 +964,72 @@ def test_preset_sets_style_and_square_option(tmp_path, monkeypatch, browser):
         page.close()
 
 
+# ---------- 3단계: 프로젝트, 여러 글, 사진 올리기 ----------
+def test_project_list_open_rename_delete(tmp_path, monkeypatch, browser):
+    m = _start(tmp_path, monkeypatch)
+    for base in _serve(m):
+        page = browser.new_page(viewport={"width": 390, "height": 844})
+        _to_edit(page, base)
+        page.fill(".scene-card textarea:not(.direction) >> nth=0", "프로젝트에 남을 자막")
+        page.wait_for_function("document.getElementById('save-status').textContent.includes('저장됨')")
+        page.once("dialog", lambda d: d.accept())
+        page.click("#go-home")                                              # 처음 화면으로
+        page.wait_for_selector("#project-list .project")
+        assert "대본 고치는 중" in page.inner_text("#project-list")
+        page.once("dialog", lambda d: d.accept("가족 여행"))
+        page.click("#project-list .project >> nth=0 >> text=이름 바꾸기")
+        page.wait_for_selector("#project-list b:has-text('가족 여행')")
+        page.click("#project-list .project-open >> nth=0")                  # 열면 이어서 고치기
+        page.wait_for_selector("#view-edit:not(.hidden)")
+        assert page.input_value(".scene-card textarea:not(.direction) >> nth=0") == "프로젝트에 남을 자막"
+        page.once("dialog", lambda d: d.accept())
+        page.click("#go-home")
+        page.wait_for_selector("#project-list .project")
+        page.once("dialog", lambda d: d.accept())
+        page.click("#project-list .project >> nth=0 >> text=삭제")
+        page.wait_for_selector("#projects.hidden", state="attached")
+        assert m.list_jobs() == []
+        page.close()
+
+
+def test_several_urls_failed_post_retry_and_photo_upload(tmp_path, monkeypatch, browser):
+    from app.errors import UserError
+    from app.models import BlogPost, ImageRef
+
+    m = _start(tmp_path, monkeypatch)
+    fail = {"https://blog.naver.com/b/2"}
+
+    def fetch(url):
+        if url in fail:
+            raise UserError("글을 읽을 수 없어요. 전체공개 글인지 확인해 주세요.")
+        return BlogPost(title=f"글 {url[-1]}", paragraphs=[f"본문 {url[-1]}"], images=[ImageRef(url="i" + url[-1])],
+                        url=url)
+
+    m.steps.fetch_post = fetch
+    for base in _serve(m):
+        page = browser.new_page(viewport={"width": 1280, "height": 800})
+        page.goto(base)
+        page.fill("#url", "https://blog.naver.com/a/1")
+        page.click("#btn-more-urls")
+        page.fill("#more-urls", "https://blog.naver.com/b/2")
+        page.click("#btn-home-manual")
+        page.wait_for_selector("#view-edit:not(.hidden)")
+        assert page.is_visible("#source-list")                              # 못 불러온 글이 있으면 펼쳐 둠
+        assert "못 불러옴" in page.inner_text("#source-list") and "전체공개" in page.inner_text("#source-list")
+        fail.clear()
+        page.click("#btn-retry-sources")
+        page.wait_for_selector("#view-edit:not(.hidden) #source-list .source.ok >> nth=1", state="attached")
+        assert not page.is_visible("#source-list")                          # 다 불러오면 다시 접힘
+        assert "불러온 글 2편" in page.inner_text("#sources-summary")
+        img = tmp_path / "mine.png"
+        from PIL import Image
+        Image.new("RGB", (90, 60), (200, 40, 40)).save(img)
+        page.set_input_files("#photo-upload", str(img))
+        page.wait_for_function("state.job.post.images.length === 3")
+        assert "사진 3장" in page.inner_text("#sources-summary")
+        page.close()
+
+
 # ---------- 2단계: AI 모델 설정 화면 ----------
 def test_model_settings_screen(live_server, browser, monkeypatch):
     from app.ai import models as ai

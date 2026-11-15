@@ -125,8 +125,8 @@ def main(port: int = DEFAULT_PORT, opener: Callable[[str], object] = open_app_wi
     from app.paths import jobs_dir
 
     manager = JobManager(jobs_dir(), default_steps())
-    removed = manager.cleanup_old(7)
-    log.info("starting on port %s (cleaned %s old jobs)", port, removed)
+    # 프로젝트는 사용자가 지울 때까지 남긴다(예전에는 7일 지나면 지웠다. 2026-11-15 고도화 3단계)
+    log.info("starting on port %s", port)
     serve(create_app(manager), port, lambda: opener(url))
     return 0
 

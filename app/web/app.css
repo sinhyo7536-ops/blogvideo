@@ -304,3 +304,24 @@ button.photo:hover, button.photo:focus-visible { border-color: var(--primary); }
 .photo.excluded img, .thumb.excluded { opacity: .35; filter: grayscale(1); }
 .photo .out { position: absolute; right: 6px; top: 6px; padding: 0 7px; height: 22px; border-radius: 11px;
               background: #a1161b; color: #fff; font-size: .75rem; line-height: 22px; }
+
+/* 프로젝트 목록, 여러 글, 사진 올리기 */
+.projects { margin-top: 2rem; border-top: 1px solid var(--line); padding-top: 1rem; }
+.project-list { list-style: none; padding: 0; display: grid; gap: .5rem; }
+.project { border: 1px solid var(--line); border-radius: 12px; padding: .5rem .7rem; display: flex; flex-wrap: wrap;
+           gap: .4rem; align-items: center; justify-content: space-between; }
+.project-open { flex: 1 1 220px; text-align: left; background: none; border: none; padding: .2rem; cursor: pointer;
+                display: grid; gap: .15rem; min-height: 44px; }
+.project-open:hover b { text-decoration: underline; }
+.project-tools { display: flex; gap: .3rem; }
+.ghost.small { min-height: 34px; font-size: .85rem; padding: .2rem .6rem; }
+.ghost.danger { color: #a1161b; border-color: #e7b4b6; }
+.sources-panel { border: 1px solid var(--line); border-radius: 12px; padding: .6rem .8rem; margin: .8rem 0; }
+.sources-panel summary { font-weight: 700; cursor: pointer; min-height: 32px; }
+.source-list { list-style: none; padding: 0; display: grid; gap: .4rem; margin: .5rem 0; }
+.source-status { display: inline-block; padding: 0 .45rem; border-radius: 9px; font-size: .75rem; line-height: 1.6; }
+.source-status.ok { background: #e6f4ea; color: #1a7f37; }
+.source-status.error { background: #ffe3e3; color: #a1161b; }
+.source-status.duplicate { background: #eef1f6; color: #555; }
+.upload-btn { cursor: pointer; display: inline-flex; align-items: center; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }

@@ -25,6 +25,8 @@ PORT = 8765
 NO_KEY = "Claude API 키가 없어요. 설정에서 키를 넣어 주세요. (키 없이 쓰려면 \"AI 없이 직접 작성하기\")"
 PC_ONLY = "설정은 PC에서만 바꿀 수 있어요."
 NO_COMMAND = "어떻게 고칠지 버튼을 고르거나 직접 적어 주세요."
+MAX_PHOTO_BYTES = 30 * 1024 * 1024
+PHOTO_TOO_BIG = "사진이 너무 커요. 30MB보다 작은 사진을 올려 주세요."
 LOCAL_ONLY = "이 프로그램은 설치된 PC에서만 쓸 수 있어요."
 _LOCAL_HOSTS = {"127.0.0.1", "localhost", "[::1]"}
 UNKNOWN = "알 수 없는 오류가 났어요. 다시 시도해 주세요."
@@ -89,6 +91,7 @@ def default_steps() -> Steps:
 
 class CreateJob(BaseModel):
     url: str
+    urls: list[str] = Field(default_factory=list, max_length=10)   # 함께 합칠 다른 글 주소
     options: RenderOptions = RenderOptions()
     mode: Literal["api", "load", "manual"] = "api"   # load: 글·사진만, manual: 불러온 뒤 바로 직접 작성
     settings: ScriptSettings = ScriptSettings()
@@ -119,6 +122,10 @@ class RewriteRequest(BaseModel):
     indexes: list[int] = Field(min_length=1, max_length=300)
     preset: str | None = None
     command: str = Field(default="", max_length=200)
+
+
+class Rename(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
 
 
 class VersionLabel(BaseModel):
@@ -240,8 +247,37 @@ def create_app(manager: JobManager | None = None) -> FastAPI:
     @app.post("/api/jobs")
     def create_job(body: CreateJob):
         url = validate_url(body.url)
+        more = [validate_url(u) for u in body.urls if u.strip()]
         need_key(body.mode)
-        return _public(manager.create(url, body.options, body.mode, body.settings))
+        return _public(manager.create(url, body.options, body.mode, body.settings, urls=more))
+
+    @app.get("/api/jobs")
+    def list_jobs():
+        """프로젝트 목록 (최근 것이 먼저)."""
+        from app.projects import summary
+
+        return {"jobs": [summary(s) for s in manager.list_jobs()]}
+
+    @app.patch("/api/jobs/{job_id}")
+    def rename_job(job_id: str, body: Rename):
+        return _public(manager.rename(job_id, body.name))
+
+    @app.delete("/api/jobs/{job_id}", status_code=204)
+    def delete_job(job_id: str):
+        manager.delete(job_id)
+
+    @app.post("/api/jobs/{job_id}/sources/retry")
+    def retry_sources(job_id: str):
+        """불러오지 못한 글 다시 불러오기."""
+        return _public(manager.retry_sources(job_id))
+
+    @app.post("/api/jobs/{job_id}/photos")
+    async def upload_photo(job_id: str, file: UploadFile = File(...)):
+        """사진 직접 올리기."""
+        data = await file.read(MAX_PHOTO_BYTES + 1)
+        if len(data) > MAX_PHOTO_BYTES:
+            raise UserError(PHOTO_TOO_BIG)
+        return _public(manager.add_photo(job_id, data, file.filename or ""))
 
     @app.post("/api/jobs/{job_id}/write")
     def write(job_id: str, body: WriteMode):
