@@ -351,3 +351,140 @@ button.photo:hover, button.photo:focus-visible { border-color: var(--primary); }
 .start-option p { margin: 0; }
 .ai-option { border-top: 1px solid var(--line); padding-top: .9rem; margin-top: 1.2rem; }
 .option-title { margin: 0; font-size: 1.1rem; }
+
+/* ===================== 스튜디오 디자인 (2026-11-15, 시안 1 '스튜디오 편집실') =====================
+   짙은 남색 바탕. 파랑 = 사용자가 누르는 기본 동작, 테라코타 ✦ = AI가 하는 일. 위의 밝은 색 규칙을 여기서 덮는다. */
+:root {
+  --bg: #0B1526; --card: #101D33; --field: #13213A; --raise: #172742;
+  --text: #E8EEF8; --muted: #93A6C4; --line: #22365A; --line-strong: #2E4675;
+  --primary: #2F6BFF; --primary-dark: #1F54D6; --ai: #E07A5F; --ai-text: #F2B4A3; --ai-soft: rgba(224, 122, 95, .12);
+  --danger: #FF7A7A; --ok: #5BD1A6; --warn: #F2B04B; --radius: 14px;
+  color-scheme: dark;
+}
+body { background: var(--bg); color: var(--text); }
+.muted, .count, .scene-num, .direction-more summary, .diff-before, .swap .arrow, .places .kind { color: var(--muted); }
+h1 { letter-spacing: -.01em; }
+.topbar { background: rgba(11, 21, 38, .92); border-bottom-color: var(--line); backdrop-filter: blur(8px); }
+.brand { color: var(--text); display: inline-flex; align-items: center; gap: .55rem; }
+.brand .logo { width: 30px; height: 30px; flex: none; }
+.studio-tag { font-size: .62rem; letter-spacing: .14em; color: var(--ai-text); border: 1px solid var(--ai); border-radius: 6px; padding: 1px 5px; font-weight: 700; }
+.link-btn { color: var(--text); border-color: var(--line); background: transparent; }
+
+.view { background: var(--card); border: 1px solid var(--line); box-shadow: none; }
+input, select, textarea { background: var(--field); border-color: var(--line); color: var(--text); }
+input::placeholder, textarea::placeholder { color: #61779B; }
+select option { background: var(--field); color: var(--text); }
+button, .as-btn { background: var(--raise); border-color: var(--line); color: var(--text); }
+button:hover:not(:disabled), .as-btn:hover { border-color: var(--line-strong); }
+.ghost { background: transparent; }
+.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+.primary:hover:not(:disabled) { background: #4A7DFF; border-color: #4A7DFF; }
+.ai, .scene-actions .ai-fix { background: var(--ai-soft); border: 1px solid var(--ai); color: var(--ai-text); font-weight: 600; }
+.ai::before, .scene-actions .ai-fix::before, .ai-mark::before { content: "\2726"; margin-right: .4rem; color: var(--ai); }
+.ai:hover:not(:disabled), .scene-actions .ai-fix:hover { background: rgba(224, 122, 95, .2); }
+.ai-mark { font-style: normal; color: var(--ai-text); }
+.seg { border-color: var(--line); }
+.seg button { background: var(--field); color: var(--text); }
+.seg button + button, .seg.stack button + button { border-color: var(--line); }
+.seg button.on { background: var(--primary); color: #fff; }
+
+.notice, .warn-box { background: rgba(242, 176, 75, .1); border-color: rgba(242, 176, 75, .45); color: #F5CF8E; }
+.error-box { background: rgba(255, 122, 122, .1); border-color: rgba(255, 122, 122, .45); color: #FFB3B3; }
+.error-text { color: var(--danger); }
+.ok-text, .model-check li.ok { color: var(--ok); }
+.model-check li.bad { color: var(--danger); }
+.toast { background: #E8EEF8; color: #0B1526; }
+dialog, .tool-dialog { background: var(--card); color: var(--text); border: 1px solid var(--line); }
+.bar { background: var(--field); }
+.sticky-actions { background: linear-gradient(transparent, var(--card) 30%); }
+
+.scene-card, .suggestion, .version, .copy-item, .project, .result-box, .analysis-panel, .sources-panel, .script-settings,
+.choice-card, .source-text { border-color: var(--line); background: transparent; }
+.scene-card { background: var(--field); }
+.scene-card.selected { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary); }
+.scene-card textarea.direction { background: var(--card); }
+.thumb { background-color: #0E1A2E; border-color: var(--line); }
+.photo { border-color: var(--line); background: #0E1A2E; }
+.photo .cat { background: rgba(11, 21, 38, .85); color: var(--text); }
+.mini { border-color: var(--line); background: #0E1A2E; }
+.mini.empty { color: var(--muted); }
+.applied { color: #8FB1FF; }
+.section-tag { background: rgba(47, 107, 255, .16); color: #A9C2FF; }
+.evidence.fact, .score.good, .source-status.ok { background: rgba(91, 209, 166, .14); color: var(--ok); }
+.evidence.photo { background: rgba(47, 107, 255, .16); color: #A9C2FF; }
+.evidence.guess, .score.low { background: rgba(242, 176, 75, .14); color: var(--warn); }
+.source-status.error { background: rgba(255, 122, 122, .14); color: var(--danger); }
+.source-status.duplicate { background: var(--raise); color: var(--muted); }
+.chip { background: var(--field); border-color: var(--line); color: var(--text); }
+.chip.on { background: var(--ai); border-color: var(--ai); color: #1B0D08; }
+.diff del { background: rgba(255, 122, 122, .18); color: #FFB3B3; }
+.diff ins { background: rgba(91, 209, 166, .18); color: #9BE8CB; }
+.overview-item { color: var(--text); }
+.overview-item:hover { background: var(--raise); }
+.confirm-box { background: rgba(242, 176, 75, .08); border-color: rgba(242, 176, 75, .45); }
+.confirm-box.done { background: rgba(91, 209, 166, .08); border-color: rgba(91, 209, 166, .5); }
+.check.warn { background: rgba(242, 176, 75, .1); }
+.check.typo { background: var(--ai-soft); }
+.check.info { background: var(--raise); }
+.ghost.danger { color: var(--danger); border-color: rgba(255, 122, 122, .45); }
+
+/* ---------- 스튜디오 배치: 넓은 창에서 왼쪽 작업, 오른쪽 미리보기 ---------- */
+.layout { max-width: 760px; }
+.panel { background: var(--field); border: 1px solid var(--line); border-radius: 12px; padding: .8rem .9rem; margin: 0 0 1rem; }
+.panel-title { margin: 0 0 .5rem; font-size: .8rem; letter-spacing: .06em; color: var(--muted); font-weight: 700; }
+.pipeline { list-style: none; counter-reset: step; padding: 0; margin: .4rem 0 0; display: grid; gap: .45rem; }
+.pipeline li { counter-increment: step; position: relative; padding-left: 2.1rem; min-height: 1.6rem; color: var(--muted); }
+.pipeline li::before { content: counter(step); position: absolute; left: 0; top: 0; width: 1.55rem; height: 1.55rem; border-radius: 50%;
+  border: 1px solid var(--line-strong); display: grid; place-items: center; font-size: .8rem; color: var(--muted); }
+.pipeline li b { display: block; color: var(--text); font-weight: 600; }
+.pipeline li span { display: block; font-size: .85rem; }
+.pipeline li.done::before { content: "\2713"; background: rgba(91, 209, 166, .16); border-color: var(--ok); color: var(--ok); }
+.pipeline li.now::before { background: var(--primary); border-color: var(--primary); color: #fff; }
+.pipeline li.now b { color: #fff; }
+#view-progress .pipeline { margin: 1.2rem 0; }
+.project { gap: .6rem; }
+.project-thumb { width: 64px; height: 44px; border-radius: 8px; object-fit: cover; flex: none; background: #0E1A2E; }
+
+.preview-panel .pv-stage { position: relative; aspect-ratio: 16 / 9; background: #050B16; border-radius: 10px; overflow: hidden;
+  display: flex; align-items: flex-end; justify-content: center; margin-bottom: .4rem; }
+.pv-stage[data-aspect="9:16"] { aspect-ratio: 9 / 16; max-height: 62vh; margin-inline: auto; }
+.pv-stage[data-aspect="1:1"] { aspect-ratio: 1 / 1; }
+.pv-stage img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.pv-caption { position: relative; margin: 0 6% 6%; padding: .25rem .6rem; border-radius: 6px; text-align: center; font-size: .95rem;
+  line-height: 1.4; color: #fff; background: rgba(0, 0, 0, .62); max-width: 88%; }
+.pv-stage[data-tpl="mood"] .pv-caption, .pv-stage[data-tpl="cinema"] .pv-caption { background: transparent; text-shadow: 0 1px 3px #000, 0 0 8px rgba(0, 0, 0, .8); }
+.pv-stage[data-tpl="vlog"] .pv-caption { background: #FFD60A; color: #141414; font-weight: 700; }
+.pv-stage[data-tpl="essay"] .pv-caption { background: transparent; font-size: .8rem; text-shadow: 0 1px 2px #000; }
+.pv-stage[data-tpl="cinema"]::before, .pv-stage[data-tpl="cinema"]::after { content: ""; position: absolute; left: 0; right: 0; height: 12.8%;
+  background: #000; z-index: 1; }
+.pv-stage[data-tpl="cinema"]::before { top: 0; }
+.pv-stage[data-tpl="cinema"]::after { bottom: 0; }
+.pv-stage[data-tpl="cinema"] .pv-caption { z-index: 2; margin-bottom: 1.5%; }
+.pv-stage[data-aspect="9:16"]::before, .pv-stage[data-aspect="9:16"]::after,
+.pv-stage[data-aspect="1:1"]::before, .pv-stage[data-aspect="1:1"]::after { display: none; }
+.pv-place { position: absolute; left: 4%; top: 6%; z-index: 2; background: rgba(0, 0, 0, .65); color: #fff; border-radius: 99px;
+  padding: .1rem .6rem; font-size: .8rem; }
+.pv-note { font-size: .8rem; margin: .2rem 0 .8rem; }
+.timeline { display: flex; gap: 4px; overflow-x: auto; padding: 2px 2px 6px; }
+.tl-item { position: relative; flex: none; width: 64px; height: 40px; min-height: 0; padding: 0; border-radius: 6px; overflow: hidden;
+  background: #0E1A2E; border: 1px solid var(--line); }
+.tl-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.tl-item.on { outline: 2px solid var(--primary); outline-offset: 0; }
+.tl-num { position: absolute; left: 2px; top: 2px; background: rgba(0, 0, 0, .7); color: #fff; border-radius: 4px; font-size: .65rem;
+  padding: 0 3px; line-height: 1.3; }
+
+@media (min-width: 1100px) {
+  .layout { max-width: 1320px; }
+  .view:not(.wide) { max-width: 760px; margin: 0 auto; }
+  .studio { display: grid; grid-template-columns: minmax(0, 1fr) 400px; gap: 1.4rem; align-items: start; }
+  .edit-studio { grid-template-columns: minmax(0, 1fr) 460px; }
+  .studio-side { position: sticky; top: 4.6rem; }
+  .edit-studio .studio-side { max-height: calc(100vh - 5.5rem); overflow-y: auto; }
+  /* 장면 카드는 편집기 한 줄처럼: 왼쪽 사진, 오른쪽 자막·설정 */
+  .edit-studio .scenes { grid-template-columns: minmax(0, 1fr); }
+  .edit-studio .scene-card { grid-template-columns: 230px minmax(0, 1fr); column-gap: .9rem; align-items: start; }
+  .edit-studio .scene-card > * { grid-column: 2; }
+  .edit-studio .scene-card > .scene-head { grid-column: 1 / -1; }
+  .edit-studio .scene-card > .thumb { grid-column: 1; grid-row: 2 / span 4; }
+  .edit-studio .scene-card > .scene-photos { grid-column: 1; grid-row: 6 / span 4; }
+}

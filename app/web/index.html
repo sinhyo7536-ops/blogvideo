@@ -3,14 +3,14 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#1f6feb">
+  <meta name="theme-color" content="#0B1526">
   <title>블로그 영상 변환기</title>
   <link rel="icon" href="/static/icon.png">
   <link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
   <header class="topbar">
-    <button class="brand" type="button" id="go-home">🎬 블로그 영상 변환기</button>
+    <button class="brand" type="button" id="go-home"><svg class="logo" viewBox="0 0 56 56" aria-hidden="true"><rect width="56" height="56" rx="14" fill="#13213A"/><path d="M13 15h26a4 4 0 014 4v14a4 4 0 01-4 4H25l-8 6v-6h-4a4 4 0 01-4-4V19a4 4 0 014-4z" fill="#2F6BFF"/><path d="M23 21v11l9-5.5z" fill="#fff"/><path d="M44 8l1.6 4.4L50 14l-4.4 1.6L44 20l-1.6-4.4L38 14l4.4-1.6z" fill="#E07A5F"/></svg><span>블로그 영상 변환기</span><span class="studio-tag">STUDIO</span></button>
     <button class="link-btn hidden" type="button" id="open-settings">설정</button>
   </header>
 
@@ -18,7 +18,9 @@
 
   <main class="layout">
     <!-- 1. 블로그 불러오기 -->
-    <section id="view-home" class="view hidden">
+    <section id="view-home" class="view wide hidden">
+      <div class="studio">
+      <div class="studio-main">
       <h1>여행 블로그 글로 영상 만들기</h1>
       <p class="muted">네이버 블로그에 쓴 여행 글 주소를 넣고, 블로그 글을 그대로 쓸지 AI가 새로 쓸지 골라 주세요.</p>
 
@@ -73,14 +75,27 @@
         </div>
       </details>
       <p class="muted mode-help"></p>
-      <button type="button" class="ghost big" id="btn-load">AI로 대본 만들기</button>
+      <button type="button" class="ghost big ai" id="btn-load">AI로 대본 만들기</button>
       </div>
 
-      <section class="projects hidden" id="projects">
-        <h2>내 프로젝트</h2>
-        <p class="muted">만들던 영상은 여기 남아 있어요. 눌러서 이어서 고치거나 다시 만들 수 있어요.</p>
-        <ul class="project-list" id="project-list"></ul>
-      </section>
+      </div>
+      <aside class="studio-side">
+        <div class="panel flow">
+          <p class="panel-title">작업 흐름</p>
+          <ol class="pipeline static">
+            <li><b>글·사진 불러오기</b><span>네이버 블로그 글 하나 또는 여러 편</span></li>
+            <li><b>대본 만들기</b><span>블로그 글 그대로, 또는 <em class="ai-mark">AI 대본</em></span></li>
+            <li><b>사진·자막·목소리 맞추기</b><span>대본 화면에서 미리 보며 고치기</span></li>
+            <li><b>영상 완성</b><span>쇼츠·유튜브 글·검수까지</span></li>
+          </ol>
+        </div>
+        <section class="projects panel hidden" id="projects">
+          <p class="panel-title">내 프로젝트</p>
+          <p class="muted">만들던 영상은 여기 남아 있어요. 눌러서 이어서 고치거나 다시 만들 수 있어요.</p>
+          <ul class="project-list" id="project-list"></ul>
+        </section>
+      </aside>
+      </div>
     </section>
 
     <!-- 1-2. 불러온 글·사진 확인, 작성 방법 고르기 -->
@@ -105,7 +120,7 @@
           <h3>AI로 대본 만들기</h3>
           <p class="muted">AI가 글과 사진을 보고 장면을 나누고, 장면에 맞는 사진·자막·움직임·전환을 골라 줘요. 만든 뒤에 고칠 수 있어요.</p>
           <p class="muted mode-help"></p>
-          <button type="button" class="ghost big" id="btn-recommend">AI로 대본 만들기</button>
+          <button type="button" class="ghost big ai" id="btn-recommend">AI로 대본 만들기</button>
         </div>
       </div>
       <p class="error-text hidden" id="source-error" role="alert"></p>
@@ -113,7 +128,9 @@
     </section>
 
     <!-- 2. 장면 편집 -->
-    <section id="view-edit" class="view hidden">
+    <section id="view-edit" class="view wide hidden">
+      <div class="studio edit-studio">
+      <div class="studio-main">
       <h1 id="edit-title">대본 고치기</h1>
       <p class="muted" id="edit-hint">자막을 고치고, 사진을 바꾸고, 순서를 정리해 주세요. 자막은 성우가 그대로 읽어요.</p>
       <div class="edit-options">
@@ -229,9 +246,9 @@
       <p class="muted" id="scene-summary"></p>
       <div class="editor-tools" id="editor-tools">
         <button type="button" class="ghost" id="btn-overview">전체 대본 보기</button>
-        <button type="button" class="ghost" id="btn-ai-all">AI로 전체 고치기</button>
-        <button type="button" class="ghost" id="btn-review">맞춤법·문맥 검사</button>
-        <button type="button" class="ghost" id="btn-match">사진 자동 맞추기</button>
+        <button type="button" class="ghost ai" id="btn-ai-all">AI로 전체 고치기</button>
+        <button type="button" class="ghost ai" id="btn-review">맞춤법·문맥 검사</button>
+        <button type="button" class="ghost ai" id="btn-match">사진 자동 맞추기</button>
         <button type="button" class="ghost" id="btn-versions">버전 기록</button>
         <span class="save-status muted" id="save-status" aria-live="polite"></span>
       </div>
@@ -265,6 +282,21 @@
       <div class="sticky-actions">
         <button type="button" class="primary big" id="btn-render">영상 만들기</button>
       </div>
+      </div>
+      <aside class="studio-side">
+        <div class="panel preview-panel" id="preview-panel">
+          <p class="panel-title">미리보기 <small class="muted" id="pv-info"></small></p>
+          <div class="pv-stage" id="pv-stage" data-aspect="16:9" data-tpl="clean">
+            <img id="pv-img" class="hidden" alt="">
+            <span class="pv-place hidden" id="pv-place"></span>
+            <p class="pv-caption" id="pv-caption"></p>
+          </div>
+          <p class="muted pv-note">장면을 누르거나 아래 타임라인에서 고르면 여기서 사진과 자막을 함께 보여요. 실제 영상의 움직임·전환은 영상 만들기에서 들어가요.</p>
+          <p class="panel-title">타임라인 <small class="muted" id="pv-total"></small></p>
+          <div class="timeline" id="pv-timeline"></div>
+        </div>
+      </aside>
+      </div>
     </section>
 
     <!-- 3. 진행 -->
@@ -273,6 +305,13 @@
       <p class="muted" id="progress-hint">잠시만 기다려 주세요. 이 화면을 닫아도 작업은 계속돼요.</p>
       <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100"><div id="bar-fill"></div></div>
       <p class="percent" id="percent">0%</p>
+      <ol class="pipeline" id="pipeline">
+        <li data-step="load"><b>글·사진 불러오기</b></li>
+        <li data-step="analyze"><b>AI 여행 분석</b></li>
+        <li data-step="write"><b>대본 쓰기</b></li>
+        <li data-step="voice"><b>목소리·연출</b></li>
+        <li data-step="render"><b>영상 만들기</b></li>
+      </ol>
       <button type="button" class="ghost" id="btn-cancel">멈추기</button>
     </section>
 
@@ -298,7 +337,7 @@
       <section class="result-box" id="yt-box">
         <h2>유튜브에 올릴 글</h2>
         <p class="muted">AI가 제목 후보, 설명(장소별 챕터 포함), 해시태그, 썸네일 문구, 검색 키워드를 써 줘요.</p>
-        <button type="button" class="ghost" id="btn-yt">AI로 유튜브 글 만들기</button>
+        <button type="button" class="ghost ai" id="btn-yt">AI로 유튜브 글 만들기</button>
         <p class="muted hidden" id="yt-wait">쓰는 중이에요… (보통 5~15초)</p>
         <p class="error-text hidden" id="yt-error" role="alert"></p>
         <div class="hidden" id="yt-result">
@@ -315,7 +354,7 @@
       <section class="result-box" id="shorts-box">
         <h2>쇼츠 (세로 1분 영상)</h2>
         <p class="muted">이 영상에서 가장 재밌는 장면만 골라 쇼츠를 만들어요. AI가 고른 대본을 확인하고 고친 뒤에 만들어요.</p>
-        <button type="button" class="ghost" id="btn-shorts-plan">쇼츠 대본 만들기</button>
+        <button type="button" class="ghost ai" id="btn-shorts-plan">쇼츠 대본 만들기</button>
         <p class="muted hidden" id="shorts-wait">AI가 장면을 고르는 중이에요… (보통 10~30초)</p>
         <p class="error-text hidden" id="shorts-error" role="alert"></p>
         <div class="hidden" id="shorts-edit">
@@ -332,7 +371,7 @@
       <section class="result-box" id="check-box">
         <h2>영상 검수</h2>
         <p class="muted">같은 사진 반복, 빠진 사진, 너무 길거나 빨리 지나가는 자막, 글과 안 맞는 사진, 오탈자를 찾아 줘요.</p>
-        <button type="button" class="ghost" id="btn-checkup">영상 검수하기</button>
+        <button type="button" class="ghost ai" id="btn-checkup">영상 검수하기</button>
         <p class="muted hidden" id="check-wait">살펴보는 중이에요…</p>
         <p class="error-text hidden" id="check-error" role="alert"></p>
         <p class="hidden" id="check-summary"></p>

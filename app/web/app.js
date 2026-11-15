@@ -359,7 +359,24 @@ function stopPoll() {
   state.pollTimer = null;
 }
 
+const PIPE_STEP = { queued: "load", scraping: "load", analyzing: "analyze", scripting: "write", directing: "voice",
+                    tts: "voice", rendering: "render" };
+const PIPE_ORDER = ["load", "analyze", "write", "voice", "render"];
+
+function showPipeline(job) {
+  const now = PIPE_STEP[job.stage] || "load";
+  // 대본이 이미 있는 작업(영상 만들기·쇼츠)은 앞 단계를 끝난 것으로
+  const start = job.script && ["queued", "directing", "tts", "rendering"].includes(job.stage) ? "voice" : now;
+  const at = PIPE_ORDER.indexOf(job.stage === "queued" && job.script ? start : now);
+  document.querySelectorAll("#pipeline li").forEach((li) => {
+    const k = PIPE_ORDER.indexOf(li.dataset.step);
+    li.classList.toggle("done", k < at);
+    li.classList.toggle("now", k === at);
+  });
+}
+
 function openProgress(job) {
+  showPipeline(job);
   $("progress-title").textContent = STAGE_LABEL[job.stage] || "만드는 중";
   const pct = Math.round((job.progress || 0) * 100);
   $("bar-fill").style.width = pct + "%";
@@ -740,7 +757,7 @@ function renderScenes() {
       count.textContent = `${ta.value.length}자` + (ta.value.length > 40 ? " · 조금 길어요" : "");
       count.classList.toggle("over", ta.value.length > 40);
     };
-    ta.addEventListener("input", () => { upd(); updateSummary(); });
+    ta.addEventListener("input", () => { upd(); updateSummary(); if (previewIndex() === i) renderPreview(); });
     upd();
 
     const place = document.createElement("input");
@@ -749,7 +766,7 @@ function renderScenes() {
     place.placeholder = "장소 이름 (예: 통영 동피랑) · 비워 두면 표시 안 함";
     place.value = scene.place || "";
     place.setAttribute("aria-label", `장면 ${i + 1} 장소 이름`);
-    place.addEventListener("input", () => { scene.place = place.value; });
+    place.addEventListener("input", () => { scene.place = place.value; if (previewIndex() === i) renderPreview(); });
 
     const pickers = document.createElement("div");
     pickers.className = "scene-effects";
@@ -823,6 +840,7 @@ function renderScenes() {
     li.append(head, thumb, photoBox, ta, count, place, pickers, more, applied, actions);
     list.appendChild(li);
   });
+  renderTimeline();
   markDirty();
 }
 
@@ -944,9 +962,66 @@ function appliedLabels(scene) {
   return out;
 }
 
+// ---------- 스튜디오 미리보기 · 타임라인 ----------
+function previewIndex() {
+  const n = state.script ? state.script.scenes.length : 0;
+  if (!n) return -1;
+  return state.selected === null || state.selected === undefined ? 0 : Math.min(state.selected, n - 1);
+}
+
+function renderPreview() {
+  if (!state.script || !$("pv-stage")) return;
+  const scenes = state.script.scenes;
+  const i = previewIndex();
+  const s = i >= 0 ? scenes[i] : null;
+  const stage = $("pv-stage");
+  stage.dataset.aspect = segValue("aspect") || "16:9";
+  stage.dataset.tpl = segValue("template") || "clean";
+  const img = $("pv-img");
+  const has = s && s.image_index !== null && s.image_index !== undefined && s.image_index < imageCount();
+  if (has) {
+    const src = imageUrl(s.image_index);
+    if (img.getAttribute("src") !== src) img.src = src;
+  }
+  img.classList.toggle("hidden", !has);
+  $("pv-caption").textContent = s ? (s.text || "(자막이 비어 있어요)") : "장면을 만들면 여기서 미리 보여요";
+  const place = $("pv-place");
+  place.textContent = s && s.place ? s.place : "";
+  place.classList.toggle("hidden", !(s && s.place && $("opt-title-bar").checked));
+  const photos = s ? photoList(s).length : 0;
+  $("pv-info").textContent = s ? `장면 ${i + 1} / ${scenes.length}` + (photos > 1 ? ` · 사진 ${photos}장이 차례로` : "") : "";
+  document.querySelectorAll("#pv-timeline .tl-item").forEach((b, k) => b.classList.toggle("on", k === i));
+}
+
+function renderTimeline() {
+  const box = $("pv-timeline");
+  if (!box || !state.script) return;
+  box.innerHTML = "";
+  state.script.scenes.forEach((s, i) => {
+    const b = el("button", "tl-item");
+    b.type = "button";
+    b.title = s.text;
+    b.setAttribute("aria-label", `타임라인 장면 ${i + 1}`);
+    if (s.image_index !== null && s.image_index !== undefined && s.image_index < imageCount()) {
+      const img = document.createElement("img");
+      img.src = smallImageUrl(s.image_index);
+      img.alt = "";
+      img.loading = "lazy";
+      b.appendChild(img);
+    }
+    b.appendChild(el("span", "tl-num", String(i + 1)));
+    b.onclick = () => { selectScene(i); focusScene(i); };
+    box.appendChild(b);
+  });
+  const sum = $("scene-summary").textContent.replace(/ \(.*\)$/, "");
+  $("pv-total").textContent = sum;
+  renderPreview();
+}
+
 function selectScene(i) {
   if (state.selected === i) return;
   state.selected = i;
+  renderPreview();
   document.querySelectorAll(".scene-card").forEach((c, k) => c.classList.toggle("selected", k === i));
   $("panel-hint").textContent = `글 한 토막이나 사진을 누르면 고른 장면(장면 ${i + 1}) 바로 아래에 새 장면이 생겨요.`;
 }
@@ -2029,6 +2104,14 @@ async function loadProjects() {
   $("projects").classList.toggle("hidden", !jobs.length);
   jobs.forEach((j) => {
     const li = el("li", "project");
+    if (j.photos) {
+      const img = document.createElement("img");
+      img.className = "project-thumb";
+      img.src = `/api/jobs/${j.id}/image/0?small=1`;
+      img.alt = "";
+      img.loading = "lazy";
+      li.appendChild(img);
+    }
     const open = el("button", "project-open");
     open.type = "button";
     open.appendChild(el("b", "", j.name || "(이름 없음)"));
@@ -2205,11 +2288,13 @@ $("btn-version-save").onclick = saveVersion;
 }));
 $("view-edit").addEventListener("click", (e) => {
   if (e.target.closest && e.target.closest(".seg button")) {
+    renderPreview();
     if (!e.target.closest("#preset-list")) presetStillMatches();
     markDirty();
   }
 });
 $("opt-title-bar").addEventListener("change", presetStillMatches);
+$("opt-title-bar").addEventListener("change", renderPreview);
 window.addEventListener("beforeunload", () => { if (state.dirty) saveNow().catch(() => {}); });
 $("btn-add-scene").onclick = () => addScene("", null, state.script.scenes.length);   // 맨 아래에
 $("yt-title").addEventListener("input", updateTitleCount);
