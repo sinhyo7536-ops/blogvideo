@@ -26,7 +26,16 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev]" pyinstaller
+          pip install -e ".[dev]"
+
+      - name: Install PyInstaller with its own bootloader (fewer antivirus false positives)
+        env:
+          PYINSTALLER_COMPILE_BOOTLOADER: "1"
+        run: |
+          # pip가 주는 기본 실행기(부트로더)는 다른 프로그램도 많이 써서 백신이 오진하기 쉽다.
+          # 소스에서 직접 컴파일해 이 앱만의 실행기를 만든다 (러너의 Visual Studio 컴파일러 사용).
+          pip install --no-binary pyinstaller --no-cache-dir pyinstaller
+          python -c "import PyInstaller, pathlib, hashlib; b = pathlib.Path(PyInstaller.__file__).parent / 'bootloader' / 'Windows-64bit-intel' / 'runw.exe'; print('bootloader', b, hashlib.sha256(b.read_bytes()).hexdigest())"
 
       - name: Download FFmpeg (gyan.dev release essentials, SHA256 verified)
         run: |
@@ -77,7 +86,7 @@ jobs:
         run: |
           choco install innosetup -y --no-progress
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
-          $version = "0.1.0"
+          $version = python -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])"
           if ("${{ github.ref_type }}" -eq "tag") { $version = "${{ github.ref_name }}".TrimStart("v") }
           & $iscc "/DAppVersion=$version" packaging\installer.iss
           if ($LASTEXITCODE -ne 0) { throw "ISCC failed" }
@@ -106,6 +115,24 @@ jobs:
           Write-Host "keyed installer OK: key imported and stored with DPAPI"
           Start-Process -FilePath "$env:ProgramFiles\BlogVideo\unins000.exe" -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES" -Wait
           Remove-Item keyed.exe -Force
+
+      - name: Microsoft Defender scan (fail if anything is detected)
+        run: |
+          $mp = "$env:ProgramFiles\Windows Defender\MpCmdRun.exe"
+          $status = Get-MpComputerStatus -ErrorAction SilentlyContinue
+          if (-not $status -or -not $status.AntivirusEnabled) { Write-Warning "Defender is not running on this runner; scan skipped"; exit 0 }
+          & $mp -SignatureUpdate | Out-Null
+          # 러너의 검사 제외 폴더를 피해서 따로 복사해 검사한다
+          $dir = "C:\bv_scan"
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          Copy-Item -Recurse build\dist\BlogVideo "$dir\app"
+          Copy-Item build\installer\BlogVideo-Setup.exe $dir
+          & $mp -Scan -ScanType 3 -File $dir -DisableRemediation
+          $code = $LASTEXITCODE
+          Get-MpThreatDetection -ErrorAction SilentlyContinue | Format-List ThreatID, Resources
+          if ($code -eq 2) { throw "Microsoft Defender detected a threat in the build" }
+          if ($code -ne 0) { Write-Warning "Defender scan exit code $code (scan could not run)"; exit 0 }
+          Write-Host "Defender: no threats found (signatures $($status.AntivirusSignatureVersion))"
 
       - uses: actions/upload-artifact@v4
         with:
