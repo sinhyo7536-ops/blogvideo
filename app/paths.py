@@ -9,7 +9,7 @@ _ROOT = Path(__file__).resolve().parent.parent
 
 
 def resource_path(rel: str) -> Path:
-    """번들(PyInstaller) 또는 소스 트리 기준 리소스 경로."""
+    """설치 폴더(또는 소스 트리) 기준 리소스 경로. 예전 PyInstaller 번들이면 sys._MEIPASS."""
     base = Path(getattr(sys, "_MEIPASS", _ROOT))
     return base / rel
 

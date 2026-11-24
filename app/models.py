@@ -15,6 +15,14 @@ class ImageRef(BaseModel):
     post: int = 0           # 여러 게시글을 합쳤을 때 몇 번째 글의 사진인지
 
 
+class VideoRef(BaseModel):
+    """사용자가 편집 화면에서 직접 올린 영상 (블로그에는 없음)."""
+    name: str                   # 원래 파일 이름 (화면 표시용)
+    local_path: str             # 작업 폴더 videos/ 안의 파일
+    duration: float = 0.0       # 초
+    has_audio: bool = False     # 영상 안에 소리가 있는지
+
+
 class BlogPost(BaseModel):
     title: str
     paragraphs: list[str]
@@ -24,6 +32,7 @@ class BlogPost(BaseModel):
     date: str = ""                                   # 작성 날짜 (예: 2026. 11. 4. 10:22)
     missing: list[str] = Field(default_factory=list)  # 받지 못한 사진 설명 (사용자에게 알린다)
     duplicates: int = 0                              # 같은 사진이라 뺀 수
+    videos: list[VideoRef] = Field(default_factory=list)   # 직접 올린 영상
 
 
 MOTIONS = ("zoom_in", "zoom_out", "pan_left", "pan_right", "pan_up", "pan_down", "still")
@@ -35,6 +44,7 @@ STRENGTHS = ("subtle", "strong")                               # 움직임 세�
 MAX_HOLD = 5.0                                                 # 목소리가 끝난 뒤 더 머무는 시간(초)
 MAX_MORE_IMAGES = 14                                           # 한 장면에 함께 보여 줄 사진 (첫 사진 말고)
 MAX_PHOTO_SEC = 30.0
+VIDEO_SOUNDS = ("low", "off", "full")                          # 내 영상의 원래 소리: 작게 / 끄기 / 그대로
 
 
 VOICE_KEYS = ("female", "female_bright", "female_calm", "male", "male_deep", "hyunsu",
@@ -70,6 +80,30 @@ class Scene(BaseModel):
     photo_secs: list[float] = Field(default_factory=list)  # [첫 사진, 이어지는 사진…] 각각 보여 줄 시간(초). 0 = 자동
     photo_score: int = -1         # AI가 본 '글과 사진이 맞는 정도' 0~100 (-1 = 모름)
     photo_alts: list[int] = Field(default_factory=list)    # AI가 추천한 사진 (좋은 순)
+
+    # --- 내 영상 (2026-11-24): video_index가 있으면 사진 대신 이 영상을 보여 준다 ---
+    video_index: int | None = None   # BlogPost.videos 번호
+    video_start: float = 0.0         # 영상에서 쓸 구간 시작(초)
+    video_end: float = 0.0           # 구간 끝(초). 0 = 영상 끝까지
+    video_sound: str = "low"         # 영상 원래 소리: VIDEO_SOUNDS
+
+    @field_validator("video_index", mode="before")
+    @classmethod
+    def _video_index(cls, v):
+        return v if isinstance(v, int) and not isinstance(v, bool) and v >= 0 else None
+
+    @field_validator("video_start", "video_end", mode="before")
+    @classmethod
+    def _video_secs(cls, v):
+        try:
+            return round(max(0.0, float(v)), 2)
+        except (TypeError, ValueError):
+            return 0.0
+
+    @field_validator("video_sound", mode="before")
+    @classmethod
+    def _video_sound(cls, v):
+        return v if v in VIDEO_SOUNDS else "low"
 
     @field_validator("more_images", mode="before")
     @classmethod

@@ -37,6 +37,7 @@ SOFT_SEC = 0.6
 CAPTION_IN = 0.35  # 자막이 아래에서 떠오르는 시간
 INNER = 0.5        # 한 장면 안에서 사진과 사진 사이를 겹치는 시간
 MIN_PHOTO = 0.8    # 시간을 '자동'으로 둔 사진이 적어도 보이는 시간
+EMPTY_SEC = 3.0    # 자막(목소리)이 없는 사진 장면의 길이
 MOTIONS = ("zoom_in", "pan_right", "zoom_out", "pan_left", "zoom_in", "pan_up", "zoom_out", "pan_down")  # 자동일 때 순서
 STRENGTH = {"subtle": 0.05, "strong": 0.18}   # 움직임 세기 → 확대·이동 비율 (기본은 ZOOM)
 LOOK = {   # 색감 → FFmpeg 필터
@@ -142,6 +143,9 @@ class Segment:
     more: list[Path] = field(default_factory=list)      # 이어서 보여 줄 사진 (2배 크기로 준비됨)
     shares: list[float] = field(default_factory=list)   # [bg, *more] 각각 보이는 시간 (합 = duration)
     key: str = ""             # 이 조각을 만드는 데 쓴 값의 지문 (같으면 예전 조각을 다시 쓴다)
+    video: str | None = None  # 사진 대신 보여 줄 내 영상 (2026-11-24)
+    v_start: float = 0.0      # 영상에서 쓸 구간 시작(초)
+    v_len: float = 0.0        # 쓸 구간 길이. 장면이 더 길면 마지막 화면에서 멈춘다
 
 
 def photo_shares(base: float, n: int, secs: list[float] | None = None) -> tuple[list[float], float]:
@@ -205,7 +209,14 @@ def _segment_clip(i: int, seg: Segment, length: float, size: tuple[int, int], wo
     w, h = size
     L = f"{length:.3f}"
     look = f",{seg.look}" if seg.look else ""
-    if seg.bg is not None and seg.more:
+    if seg.video:
+        # 내 영상: 화면을 꽉 채우게 키워 가운데를 자르고, 장면이 더 길면 마지막 화면에서 멈춘다
+        hold = f",tpad=stop_mode=clone:stop_duration={length - seg.v_len + 0.1:.3f}" if length > seg.v_len else ""
+        inputs = ["-ss", f"{seg.v_start:.3f}", "-t", f"{seg.v_len:.3f}", "-i", seg.video]
+        graph = (f"[0:v]scale={w}:{h}:force_original_aspect_ratio=increase:flags=bicubic,crop={w}:{h},setsar=1,"
+                 f"fps={FPS},settb=AVTB,setpts=PTS-STARTPTS{look}{hold}[s0];")
+        base = 1
+    elif seg.bg is not None and seg.more:
         # 사진 여러 장: 사진마다 움직임을 주고, 장면 안에서 부드럽게 겹쳐 잇는다
         bgs = [seg.bg, *seg.more]
         shares = seg.shares if len(seg.shares) == len(bgs) else [seg.duration / len(bgs)] * len(bgs)
@@ -289,8 +300,15 @@ def _build_segments(post: BlogPost, script: VideoScript, options: RenderOptions,
     if options.intro and title:
         segs.append(card("intro", next((p for p in photos if p), None), INTRO_SEC, title, script.intro_sub, ""))
     for i, scene in enumerate(script.scenes):
-        if not scene.audio_path or not scene.duration:
+        has_voice = bool(scene.audio_path and scene.duration)
+        if not has_voice and scene.text.strip():
             raise UserError(FAILED)
+        ref = _video_for(post, scene.video_index)
+        if ref is not None:
+            segs.append(_video_segment(i, scene, ref, title, options, size, workdir, bars, has_voice))
+            if on_step:
+                on_step((i + 1) / len(script.scenes))
+            continue
         bgs = []
         for k, idx in enumerate(scene.photo_list()):
             src = _photo_for(post, idx)
@@ -301,7 +319,7 @@ def _build_segments(post: BlogPost, script: VideoScript, options: RenderOptions,
                 except OSError:
                     pass
         bg = bgs[0] if bgs else None
-        base = round(scene.duration + scene.hold + look_tpl.extra_hold, 3)
+        base = round((scene.duration if has_voice else EMPTY_SEC) + scene.hold + look_tpl.extra_hold, 3)
         if len(bgs) > 1:
             secs = scene.photo_secs if len(scene.photo_secs) == len(scene.photo_list()) else []
             shares, length = photo_shares(base, len(bgs), secs if len(bgs) == len(scene.photo_list()) else [])
@@ -330,6 +348,43 @@ def _build_segments(post: BlogPost, script: VideoScript, options: RenderOptions,
         segs.append(card("outro", next((p for p in reversed(photos) if p), None), OUTRO_SEC,
                          THANKS, SUBSCRIBE, options.channel))
     return segs
+
+
+def _video_for(post: BlogPost, index: int | None):
+    videos = getattr(post, "videos", None) or []
+    if index is not None and 0 <= index < len(videos) and Path(videos[index].local_path).exists():
+        return videos[index]
+    return None
+
+
+def _video_segment(i: int, scene, ref, title: str, options: RenderOptions, size: tuple[int, int], workdir: Path,
+                   bars: Path | None, has_voice: bool) -> Segment:
+    """내 영상 장면: 길이는 쓸 구간 길이(목소리가 더 길면 그만큼). 소리는 목소리 + 영상 원래 소리(고른 크기)."""
+    from app.videoclip import clip_range, mix_audio
+
+    w, h = size
+    tpl = options.template
+    start, clen = clip_range(scene, ref)
+    voice = scene.audio_path if has_voice else None
+    length = round(max(clen, scene.duration or 0.0) + scene.hold, 3)
+    vid = _file_id(ref.local_path)
+    audio = None
+    if voice or ref.has_audio:
+        dest = workdir / "cache" / f"aud_{_digest('aud', vid, start, clen, length, scene.video_sound, _file_id(voice))}.wav"
+        audio = str(dest) if dest.exists() else mix_audio(voice, ref, start, length, scene.video_sound, dest,
+                                                          workdir / "render.log")
+        audio = str(audio) if audio else None
+    overlays = [bars] if bars else []
+    if options.title_bar and (title or scene.place):
+        overlays.append(visuals.render_overlay_png(title, scene.place, w, h, workdir / f"overlay_{i:02d}.png", tpl))
+    caption = render_caption_png(scene.text, w, h, workdir / f"caption_{i:02d}.png", tpl,
+                                 size=scene.caption_size, pos=scene.caption_pos) if scene.text.strip() else None
+    key = _digest("video", vid, start, clen, length, size, scene.look,
+                  [options.title_bar, title, scene.place, tpl, bool(bars)],
+                  [scene.text, scene.caption_size, scene.caption_pos])
+    return Segment(duration=length, overlays=overlays, caption=caption, audio=audio,
+                   transition=XFADE.get(scene.transition, ""), look=LOOK.get(scene.look, ""), key=key,
+                   video=ref.local_path, v_start=start, v_len=clen)
 
 
 GROUP = 8   # 한 번에 잇는 토막 수. 장면이 많으면(긴 영상) 여러 묶음으로 나눠 잇고, 묶음끼리 다시 잇는다

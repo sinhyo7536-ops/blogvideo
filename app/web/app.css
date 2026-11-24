@@ -449,8 +449,8 @@ dialog, .tool-dialog { background: var(--card); color: var(--text); border: 1px 
   display: flex; align-items: flex-end; justify-content: center; margin-bottom: .4rem; }
 .pv-stage[data-aspect="9:16"] { aspect-ratio: 9 / 16; max-height: 62vh; margin-inline: auto; }
 .pv-stage[data-aspect="1:1"] { aspect-ratio: 1 / 1; }
-.pv-stage img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-.pv-caption { position: relative; margin: 0 6% 6%; padding: .25rem .6rem; border-radius: 6px; text-align: center; font-size: .95rem;
+.pv-stage img, .pv-stage video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.pv-caption { white-space: pre-line; position: relative; margin: 0 6% 6%; padding: .25rem .6rem; border-radius: 6px; text-align: center; font-size: .95rem;
   line-height: 1.4; color: #fff; background: rgba(0, 0, 0, .62); max-width: 88%; }
 .pv-stage[data-tpl="mood"] .pv-caption, .pv-stage[data-tpl="cinema"] .pv-caption { background: transparent; text-shadow: 0 1px 3px #000, 0 0 8px rgba(0, 0, 0, .8); }
 .pv-stage[data-tpl="vlog"] .pv-caption { background: #FFD60A; color: #141414; font-weight: 700; }
@@ -488,3 +488,12 @@ dialog, .tool-dialog { background: var(--card); color: var(--text); border: 1px 
   .edit-studio .scene-card > .thumb { grid-column: 1; grid-row: 2 / span 4; }
   .edit-studio .scene-card > .scene-photos { grid-column: 1; grid-row: 6 / span 4; }
 }
+
+/* 내 영상 장면 (2026-11-24) */
+.thumb.is-video { outline: 2px solid var(--primary); outline-offset: -2px; }
+.scene-video { border: 1px solid var(--line); border-radius: 10px; padding: .5rem .7rem; margin: .4rem 0; background: var(--card); }
+.scene-video .video-name { margin: 0 0 .35rem; font-weight: 600; }
+.video-range { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+.video-sec input { width: 5.2rem; }
+.video-len { display: block; margin: .3rem 0 .15rem; }
+.tl-video { position: absolute; right: 3px; bottom: 2px; color: #fff; font-size: .7rem; text-shadow: 0 0 3px #000; }

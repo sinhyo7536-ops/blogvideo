@@ -28,15 +28,6 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
 
-      - name: Install PyInstaller with its own bootloader (fewer antivirus false positives)
-        env:
-          PYINSTALLER_COMPILE_BOOTLOADER: "1"
-        run: |
-          # pip가 주는 기본 실행기(부트로더)는 다른 프로그램도 많이 써서 백신이 오진하기 쉽다.
-          # 소스에서 직접 컴파일해 이 앱만의 실행기를 만든다 (러너의 Visual Studio 컴파일러 사용).
-          pip install --no-binary pyinstaller --no-cache-dir pyinstaller
-          python -c "import PyInstaller, pathlib, hashlib; b = pathlib.Path(PyInstaller.__file__).parent / 'bootloader' / 'Windows-64bit-intel' / 'runw.exe'; print('bootloader', b, hashlib.sha256(b.read_bytes()).hexdigest())"
-
       - name: Download FFmpeg (gyan.dev release essentials, SHA256 verified)
         run: |
           $url = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
@@ -62,14 +53,21 @@ jobs:
           $env:PATH = "$PWD\ffmpeg;$env:PATH"
           python -c "import asyncio, pathlib; from app.netsetup import use_system_certificates; assert use_system_certificates(); from app.tts import synthesize_scene, probe_duration; p = pathlib.Path('tts_check.mp3'); asyncio.run(synthesize_scene('안녕하세요. 블로그 영상 변환기 음성 테스트입니다.', 'ko-KR-SunHiNeural', p)); print('Edge TTS OK, seconds =', probe_duration(p))"
 
-      - name: Build app (PyInstaller)
-        run: pyinstaller --noconfirm --distpath build/dist --workpath build/work packaging/blogvideo.spec
+      - name: Build app (signed official Python, no PyInstaller)
+        run: |
+          # 서명 없는 실행 파일(PyInstaller)은 백신에 걸렸다 → 파이썬 재단이 서명한 공식 파이썬으로 켠다
+          python packaging/build_app.py --out build/app
+          $sig = Get-AuthenticodeSignature build\app\runtime\pythonw.exe
+          if ($sig.Status -ne "Valid" -or $sig.SignerCertificate.Subject -notmatch "Python Software Foundation") { throw "pythonw.exe is not signed by the PSF" }
+          Write-Host "pythonw.exe signed by: $($sig.SignerCertificate.Subject)"
+          $unsigned = Get-ChildItem build\app -Recurse -Include *.exe | Where-Object { $_.FullName -notmatch "\\ffmpeg\\" } | Where-Object { (Get-AuthenticodeSignature $_.FullName).Status -ne "Valid" }
+          if ($unsigned) { $unsigned | ForEach-Object { Write-Host "unsigned exe: $($_.FullName)" }; throw "unsigned .exe files in the app folder" }
 
       - name: Smoke test built app
         run: |
           $env:BLOGVIDEO_HOME = "$PWD\smoke_home"
           $env:BROWSER = "none"
-          $p = Start-Process -FilePath "build\dist\BlogVideo\BlogVideo.exe" -PassThru
+          $p = Start-Process -FilePath "build\app\runtime\pythonw.exe" -ArgumentList "-m","app.launcher" -WorkingDirectory "build\app" -PassThru
           $ok = $false
           for ($i = 0; $i -lt 60; $i++) {
             Start-Sleep -Seconds 1
@@ -100,7 +98,13 @@ jobs:
           $imp = "$env:APPDATA\BlogVideo\import.key"
           if (-not (Test-Path $imp)) { Get-Content install.log -Tail 60; throw "import.key was not written by the installer" }
           $env:BROWSER = "none"
-          $app = Start-Process -FilePath "$env:ProgramFiles\BlogVideo\BlogVideo.exe" -PassThru
+          $inst = "$env:ProgramFiles\BlogVideo"
+          if (Test-Path "$inst\BlogVideo.exe") { throw "old unsigned BlogVideo.exe was installed" }
+          if ((Get-AuthenticodeSignature "$inst\runtime\pythonw.exe").Status -ne "Valid") { throw "installed pythonw.exe is not signed" }
+          $lnk = (New-Object -ComObject WScript.Shell).CreateShortcut("$env:ProgramData\Microsoft\Windows\Start Menu\Programs\블로그 영상 변환기\블로그 영상 변환기.lnk")
+          Write-Host "shortcut: $($lnk.TargetPath) $($lnk.Arguments) (in $($lnk.WorkingDirectory))"
+          if ($lnk.TargetPath -notmatch "runtime\\pythonw.exe$" -or $lnk.Arguments -ne "-m app.launcher") { throw "start menu shortcut is wrong" }
+          $app = Start-Process -FilePath "$inst\runtime\pythonw.exe" -ArgumentList "-m","app.launcher" -WorkingDirectory $inst -PassThru
           $ok = $false
           for ($i = 0; $i -lt 60; $i++) {
             Start-Sleep -Seconds 1
@@ -125,7 +129,7 @@ jobs:
           # 러너의 검사 제외 폴더를 피해서 따로 복사해 검사한다
           $dir = "C:\bv_scan"
           New-Item -ItemType Directory -Force $dir | Out-Null
-          Copy-Item -Recurse build\dist\BlogVideo "$dir\app"
+          Copy-Item -Recurse build\app "$dir\app"
           Copy-Item build\installer\BlogVideo-Setup.exe $dir
           & $mp -Scan -ScanType 3 -File $dir -DisableRemediation
           $code = $LASTEXITCODE

@@ -94,14 +94,14 @@ def test_full_flow(live_server, browser, vp):
     shot(page, f"{tag}2_edit")
     page.fill(".scene-card textarea:not(.direction) >> nth=0", "고친 자막")
     page.click("button:has-text('영상 만들기')")
-    page.wait_for_selector("video", timeout=10000)
+    page.wait_for_selector("#video", timeout=10000)
     shot(page, f"{tag}3_result")
     assert page.is_visible("text=영상 저장")
     assert page.is_visible("text=제목 복사")
     assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
     # 새로고침해도 결과 화면 유지
     page.reload()
-    page.wait_for_selector("video", timeout=5000)
+    page.wait_for_selector("#video", timeout=5000)
 
 
 def test_error_and_retry(live_server, browser):
@@ -1199,3 +1199,37 @@ def test_analysis_panel_and_photo_notice(tmp_path, monkeypatch, browser):
         notice = page.inner_text("#photo-notice")
         assert "1장을 받지 못했어요" in notice and "2번째 사진" in notice and "같은 사진 1장" in notice
         page.close()
+
+
+def test_add_my_video_scene_with_caption_line_breaks(live_server, browser, tmp_path):
+    """내 사진·영상으로 장면 추가 → 영상 구간·소리 고르기 → 자막 줄바꿈 → 저장 (2026-11-24)."""
+    from tests.test_user_video import make_clip
+
+    clip = make_clip(tmp_path / "바다.mp4", 3.0)
+    page = browser.new_page(viewport={"width": 1440, "height": 900})
+    _to_edit(page, live_server)
+    before = page.locator(".scene-card").count()
+    with page.expect_file_chooser() as fc:
+        page.click("#btn-add-media")
+    fc.value.set_files(str(clip))
+    page.wait_for_selector(".scene-video", timeout=20000)
+    assert page.locator(".scene-card").count() == before + 1
+    card = page.locator(".scene-card", has=page.locator(".scene-video"))
+    assert "바다.mp4" in card.inner_text()
+    card.locator("textarea").first.fill("바다가 보여요\n정말 예뻐요")
+    assert "자막 2줄" in card.inner_text()
+    card.locator("input[aria-label$='영상 시작']").fill("0.5")
+    card.locator("input[aria-label$='영상 끝']").fill("2.5")
+    assert "2초 동안" in card.inner_text()
+    card.locator("select[aria-label$='영상 소리']").select_option("off")
+    page.wait_for_selector("#pv-video:not(.hidden)")
+    assert page.evaluate("getComputedStyle(document.getElementById('pv-caption')).whiteSpace") == "pre-line"
+    assert page.locator("#pv-timeline .tl-video").count() == 1
+    page.wait_for_function("document.getElementById('save-status').textContent.includes('저장됨')", timeout=10000)
+    jid = page.evaluate("state.job.id")
+    s = page.evaluate(f"fetch('/api/jobs/{jid}').then(r => r.json())")
+    sc = next(x for x in s["script"]["scenes"] if x.get("video_index") is not None)
+    assert sc["text"] == "바다가 보여요\n정말 예뻐요"
+    assert (sc["video_start"], sc["video_end"], sc["video_sound"]) == (0.5, 2.5, "off")
+    shot(page, "my_video_scene")
+    page.close()

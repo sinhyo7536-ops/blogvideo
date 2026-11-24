@@ -11,6 +11,7 @@ from app.paths import resource_path
 
 FONT = "assets/fonts/NotoSansKR-Bold.ttf"
 MAX_LINES = 3
+MAX_USER_LINES = 6     # 사용자가 엔터로 나눈 줄은 이만큼까지 그대로 둔다
 MIN_SIZE = 40
 _EMOJI = re.compile("[\U0001F000-\U0010FFFF\uFE0F\u200D]")
 
@@ -33,9 +34,13 @@ def _has_glyph(ch: str) -> bool:
     return bytes(_font(48).getmask(ch)) != _notdef()
 
 
-def supported_text(text: str) -> str:
-    """폰트에 없는 글자(이모지 등)를 지워 영상에 네모(□)가 나오지 않게 한다."""
+def supported_text(text: str, keep_lines: bool = False) -> str:
+    """폰트에 없는 글자(이모지 등)를 지워 영상에 네모(□)가 나오지 않게 한다.
+    keep_lines: 자막용. 사용자가 엔터로 나눈 줄을 남긴다(빈 줄은 뺌)."""
     kept = "".join(ch for ch in _EMOJI.sub("", text) if _has_glyph(ch))
+    if keep_lines:
+        rows = (" ".join(r.split()) for r in kept.replace("\r", "").split("\n"))
+        return "\n".join(r for r in rows if r)
     return " ".join(kept.split())
 
 
@@ -63,12 +68,14 @@ def _wrap(text: str, font: ImageFont.FreeTypeFont, max_w: int) -> list[str]:
 
 
 def _layout(text: str, max_w: int, size: int, min_size: int = MIN_SIZE) -> tuple[ImageFont.FreeTypeFont, list[str]]:
+    rows = [r for r in text.split("\n") if r.strip()] or [""]
+    limit = max(MAX_LINES, min(len(rows), MAX_USER_LINES))
     while True:
         font = _font(size)
-        lines = _wrap(text, font, max_w)
-        if len(lines) <= MAX_LINES or size <= min_size:
-            if len(lines) > MAX_LINES:
-                lines = lines[:MAX_LINES]
+        lines = [line for row in rows for line in _wrap(row, font, max_w)]   # 엔터로 나눈 자리에서 줄바꿈
+        if len(lines) <= limit or size <= min_size:
+            if len(lines) > limit:
+                lines = lines[:limit]
                 lines[-1] = lines[-1][:-1] + "…"
             return font, lines
         size -= max(2, size // 18)
@@ -80,7 +87,7 @@ def render_caption_png(text: str, width: int, height: int, out: Path, template: 
     from app.visuals import template as get_template
 
     tpl = get_template(template)
-    text = supported_text(text)
+    text = supported_text(text, keep_lines=True)
     vertical = height > width
     k = min(width, height) / 1080  # 화질(720p/1080p/1440p)에 맞춰 비율 유지
     base = round((72 if vertical else 64) * k * {"large": 1.3, "small": 0.8}.get(size, 1.0)

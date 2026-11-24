@@ -29,7 +29,7 @@ def _setup_logging() -> None:
     root.setLevel(logging.INFO)
     if not any(isinstance(h, logging.handlers.RotatingFileHandler) for h in root.handlers):
         root.addHandler(handler)
-    # 콘솔 없는 실행(PyInstaller windowed)에서는 stdout/stderr가 None
+    # 콘솔 없는 실행(pythonw.exe)에서는 stdout/stderr가 None
     if sys.stdout is None:
         sys.stdout = open(os.devnull, "w")
     if sys.stderr is None:

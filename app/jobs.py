@@ -22,6 +22,7 @@ UNKNOWN = "알 수 없는 오류가 났어요. 다시 시도해 주세요."
 NO_POSTS = "글을 하나도 불러오지 못했어요. 주소를 확인하고 다시 시도해 주세요."
 BAD_PHOTO = "사진 파일을 열 수 없어요. JPG나 PNG 사진을 올려 주세요."
 SAME_PHOTO = "이미 들어 있는 사진이에요."
+BAD_VIDEO = "영상 파일을 열 수 없어요. 휴대폰으로 찍은 MP4·MOV 영상을 올려 주세요."
 NOTHING_TO_RETRY = "다시 불러올 글이 없어요."
 NO_VIDEO = "먼저 영상을 만들어 주세요."
 NO_SHORTS = "쇼츠 대본이 비어 있어요."
@@ -189,7 +190,7 @@ class JobManager:
         s = self.get(job_id)
         if s.stage in _ACTIVE:
             raise UserError(BUSY)
-        if s.script is None or not any(x.text.strip() for x in s.script.scenes):
+        if s.script is None or not any(x.text.strip() or x.video_index is not None for x in s.script.scenes):
             raise UserError(NO_SCRIPT)
         fp = fingerprint(s.script)
         if s.confirmed != fp:
@@ -562,6 +563,33 @@ class JobManager:
             img.save(path, quality=92)
         ref = ImageRef(url=f"upload:{Path(name).name or path.name}", local_path=str(path), para=-1, post=-1)
         post = s.post.model_copy(update={"images": list(s.post.images) + [ref]})
+        return self._set(job_id, post=post)
+
+    def add_video(self, job_id: str, src: Path, name: str = "") -> JobState:
+        """영상 직접 올리기 (2026-11-24): src(임시 파일)를 작업 폴더 videos/ 로 옮기고 길이·소리·작은 그림을 만든다."""
+        from app.models import VideoRef
+        from app.videoclip import VIDEO_TYPES, make_thumb, probe_video
+
+        s = self.get(job_id)
+        if s.stage in _ACTIVE or s.post is None:
+            raise UserError(BUSY)
+        try:
+            info = probe_video(src)
+        except (ValueError, OSError) as e:
+            raise UserError(BAD_VIDEO) from e
+        dest = self.dir(job_id) / "videos"
+        dest.mkdir(parents=True, exist_ok=True)
+        k = len(s.post.videos)
+        ext = Path(name).suffix.lower()
+        path = dest / f"video_{k:02d}{ext if ext in VIDEO_TYPES else '.mp4'}"
+        src.replace(path)
+        try:
+            make_thumb(path, dest / f"thumb_{k:02d}.jpg", at=min(1.0, info["duration"] / 3))
+        except (ValueError, OSError):
+            log.warning("video thumbnail failed: %s", path.name)
+        ref = VideoRef(name=Path(name).name or path.name, local_path=str(path), duration=info["duration"],
+                       has_audio=info["has_audio"])
+        post = s.post.model_copy(update={"videos": list(s.post.videos) + [ref]})
         return self._set(job_id, post=post)
 
     # ---------- 유튜브 글, 썸네일 ----------

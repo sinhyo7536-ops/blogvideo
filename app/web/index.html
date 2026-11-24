@@ -264,6 +264,7 @@
       <ol id="scenes" class="scenes"></ol>
       <div class="row">
         <button type="button" class="ghost" id="btn-add-scene">+ 장면 추가</button>
+        <button type="button" class="ghost" id="btn-add-media" title="블로그에 없는 내 사진·영상으로 장면 만들기 (여러 개 골라도 돼요)">+ 내 사진·영상으로 장면 추가</button>
         <button type="button" class="ghost" id="btn-rewrite">작성 방법 다시 고르기</button>
       </div>
 
@@ -288,6 +289,7 @@
           <p class="panel-title">미리보기 <small class="muted" id="pv-info"></small></p>
           <div class="pv-stage" id="pv-stage" data-aspect="16:9" data-tpl="clean">
             <img id="pv-img" class="hidden" alt="">
+            <video id="pv-video" class="hidden" muted playsinline loop preload="metadata"></video>
             <span class="pv-place hidden" id="pv-place"></span>
             <p class="pv-caption" id="pv-caption"></p>
           </div>

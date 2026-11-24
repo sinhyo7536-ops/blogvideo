@@ -1,6 +1,9 @@
 ﻿; Inno Setup 6 스크립트 — 실행: iscc packaging\installer.iss (저장소 루트에서, PyInstaller 빌드 후)
 #define AppName "블로그 영상 변환기"
-#define AppExe "BlogVideo.exe"
+#define OldExe "BlogVideo.exe"
+; 2026-11-24: 서명 없는 BlogVideo.exe(PyInstaller)가 백신에 걸려서, 파이썬 재단이 서명한 공식 파이썬으로 켠다
+#define AppRun "runtime\pythonw.exe"
+#define AppArgs "-m app.launcher"
 #ifndef AppVersion
   #define AppVersion "0.1.0"
 #endif
@@ -21,7 +24,7 @@ ArchitecturesInstallIn64BitMode=x64compatible
 OutputDir=..\build\installer
 OutputBaseFilename=BlogVideo-Setup
 SetupIconFile=icon.ico
-UninstallDisplayIcon={app}\{#AppExe}
+UninstallDisplayIcon={app}\icon.ico
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
@@ -33,22 +36,33 @@ Name: "korean"; MessagesFile: "Korean.isl"
 [Tasks]
 Name: "desktopicon"; Description: "바탕화면에 바로가기 만들기"; Flags: checkedonce
 
+[InstallDelete]
+; 예전 버전(PyInstaller)의 실행 파일과 지난 버전의 코드를 지우고 새로 넣는다
+Type: files; Name: "{app}\{#OldExe}"
+Type: filesandordirs; Name: "{app}\_internal"
+Type: filesandordirs; Name: "{app}\app"
+Type: filesandordirs; Name: "{app}\runtime"
+
 [Files]
-Source: "..\build\dist\BlogVideo\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\build\app\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExe}"
+Name: "{group}\{#AppName}"; Filename: "{app}\{#AppRun}"; Parameters: "{#AppArgs}"; WorkingDir: "{app}"; IconFilename: "{app}\icon.ico"
 Name: "{group}\{#AppName} 제거"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: desktopicon
+Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppRun}"; Parameters: "{#AppArgs}"; WorkingDir: "{app}"; IconFilename: "{app}\icon.ico"; Tasks: desktopicon
 
 [Run]
 ; 이 프로그램은 PC 안(127.0.0.1)에서만 열리므로 방화벽을 열지 않는다. 예전 버전이 만든 규칙은 지운다.
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""BlogVideo"""; Flags: runhidden waituntilterminated
-Filename: "{app}\{#AppExe}"; Description: "지금 실행하기"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#AppRun}"; Parameters: "{#AppArgs}"; WorkingDir: "{app}"; Description: "지금 실행하기"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
-Filename: "{sys}\taskkill.exe"; Parameters: "/F /IM {#AppExe}"; Flags: runhidden; RunOnceId: "KillApp"
+; 실행 중인 프로그램은 Restart Manager(CloseApplications=force)가 닫는다. pythonw.exe를 이름으로 끄면 다른 파이썬까지 꺼진다.
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""BlogVideo"""; Flags: runhidden; RunOnceId: "DelFirewall"
+
+[UninstallDelete]
+Type: filesandordirs; Name: "{app}\app"
+Type: filesandordirs; Name: "{app}\runtime"
 
 [Code]
 const
@@ -95,7 +109,7 @@ function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   Code: Integer;
 begin
-  { 업데이트 설치 시 백그라운드에서 실행 중인 프로그램을 먼저 종료 }
-  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM {#AppExe}', '', SW_HIDE, ewWaitUntilTerminated, Code);
+  { 예전 버전(BlogVideo.exe)이 켜져 있으면 먼저 종료. 새 버전(pythonw.exe)은 Restart Manager가 닫는다 }
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM {#OldExe}', '', SW_HIDE, ewWaitUntilTerminated, Code);
   Result := '';
 end;

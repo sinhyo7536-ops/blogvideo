@@ -81,8 +81,9 @@ def synthesize_all(script: VideoScript, voice_key: str, dest: Path,
     voice = VOICE_LIST.get(voice_key) or VOICE_LIST["female"]
     extra = _tuning(voice, speed)
     # 같은 글·목소리·속도면 같은 파일 이름 → 다시 만들 때 고친 장면의 목소리만 새로 만든다
-    names = [f"voice_{voice_file_key(sc.text, voice.name, extra)}.mp3" for sc in script.scenes]
-    todo = sorted({n: sc.text for n, sc in zip(names, script.scenes)}.items())
+    texts = [spoken_text(sc.text) for sc in script.scenes]
+    names = [f"voice_{voice_file_key(t, voice.name, extra)}.mp3" if t else "" for t in texts]
+    todo = sorted((n, t) for n, t in dict(zip(names, texts)).items() if n)   # 자막이 빈 장면은 목소리 없음
     total = len(todo)
     done = 0
     durations: dict[str, float] = {}
@@ -120,6 +121,7 @@ def synthesize_all(script: VideoScript, voice_key: str, dest: Path,
     try:
         asyncio.run(run_all())
         scenes = [sc.model_copy(update={"audio_path": str(dest / n), "duration": round(durations[n] + PAD, 3)})
+                  if n else sc.model_copy(update={"audio_path": None, "duration": 0.0})
                   for n, sc in zip(names, script.scenes)]
         keep = set(names)
         for f in dest.glob("voice_*.mp3"):   # 지금 대본에 없는 예전 목소리는 지운다
@@ -131,6 +133,11 @@ def synthesize_all(script: VideoScript, voice_key: str, dest: Path,
         cert = "CERTIFICATE" in f"{type(e).__name__} {e}".upper()
         raise UserError(FAILED + (CERT_HINT if cert else "")) from e
     return script.model_copy(update={"scenes": list(scenes)})
+
+
+def spoken_text(text: str) -> str:
+    """목소리로 읽을 글: 자막의 줄바꿈은 띄어쓰기로 (줄만 바꿔도 목소리를 새로 만들지 않게)."""
+    return " ".join(text.split())
 
 
 def voice_file_key(text: str, voice_name: str, extra: dict) -> str:

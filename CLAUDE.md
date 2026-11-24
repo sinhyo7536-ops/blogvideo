@@ -19,7 +19,8 @@
 - 새 기능·버그 수정은 실패하는 테스트를 먼저 쓰고(TDD) 고친다. 외부 API(Claude, Edge TTS, 네이버, 유튜브)는 테스트에서 가짜로 대체(`tests/fakes.py`).
 - `packaging/`에 `__init__.py` 금지(파이썬 `packaging` 라이브러리를 가림).
 - `packaging/installer.iss`는 UTF-8 **BOM**으로 저장.
-- 백신 오진 대책(사용자 결정, 2026-11-17: 코드 서명 없이 무료 방법만, 설치는 지금처럼 관리자 설치, 빌드는 GitHub에서만): CI가 PyInstaller 실행기를 소스에서 직접 컴파일(`PYINSTALLER_COMPILE_BOOTLOADER`)하고, 실행 파일에 버전 정보를 넣고(UPX 끔), 빌드마다 Defender로 검사해 걸리면 실패한다. 이 PC에는 컴파일러가 없어 로컬 빌드는 pip 기본 실행기라 오진이 더 잦다 → 지인용 설치 파일은 CI 산출물 `BlogVideo-Setup`으로 만들 것. 방화벽 규칙은 만들지 않는다(서버가 127.0.0.1 전용). `tests/test_packaging.py`.
+- 백신 대책(사용자 결정, 2026-11-17: 코드 서명 없이 무료 방법만, 설치는 관리자 설치 / 2026-11-24: 공식 파이썬으로 실행): **PyInstaller를 쓰지 않는다**. `packaging/build_app.py` 가 파이썬 재단이 서명한 공식 파이썬(embeddable)과 앱 코드를 `build/app`에 모으고, 바로가기는 `runtime\pythonw.exe -m app.launcher`. 설치 폴더에 서명 없는 .exe를 새로 넣지 말 것(ffmpeg 제외, CI가 검사). CI는 서명 확인 + Defender 검사에 걸리면 실패. 방화벽 규칙은 만들지 않는다(서버가 127.0.0.1 전용). `tests/test_packaging.py`.
+- 내 사진·영상(2026-11-24): 영상은 `BlogPost.videos` + 장면 `video_index` 등, `app/videoclip.py`. 장면 길이는 영상 구간 길이(사용자가 시작·끝 초로 조절), 영상 소리는 장면마다 작게/끄기/그대로(사용자 결정). 자막 줄바꿈(엔터)은 영상 자막에 그대로, 목소리는 띄어쓰기로 읽는다.
 - 확대 효과에 FFmpeg `zoompan` 사용 금지(떨림). `render.py`의 2배 크기 scale→crop→축소 방식을 유지.
 - 외부 명령은 `subprocess.run([...])` 리스트 인자 + `procutil.quiet_kwargs()`.
 - 서버는 `127.0.0.1` 전용. 새 API도 `main.py`의 이 PC 전용 미들웨어를 거치게 둘 것.

@@ -693,6 +693,184 @@ function imageCount() {
   return (state.job && state.job.post && state.job.post.images.length) || 0;
 }
 
+// ---------- 내 사진·영상 (2026-11-24): 블로그에 없는 사진·영상도 장면에 넣는다 ----------
+const VIDEO_SOUND_LABEL = { low: "영상 소리: 작게", off: "영상 소리: 끄기", full: "영상 소리: 그대로" };
+const VIDEO_EXT = /\.(mp4|mov|m4v|avi|mkv|webm|wmv|3gp|mts|m2ts)$/i;
+
+function videoCount() {
+  return (state.job && state.job.post && (state.job.post.videos || []).length) || 0;
+}
+
+function videoInfo(k) {
+  return ((state.job && state.job.post && state.job.post.videos) || [])[k];
+}
+
+function hasVideo(scene) {
+  return !!scene && scene.video_index !== null && scene.video_index !== undefined && scene.video_index < videoCount();
+}
+
+function videoUrl(k) {
+  return `/api/jobs/${state.job.id}/videos/${k}`;
+}
+
+function videoThumbUrl(k) {
+  return `/api/jobs/${state.job.id}/videos/${k}/thumb`;
+}
+
+function fmtSec(s) {
+  const n = Math.round(Number(s || 0) * 10) / 10;
+  return n >= 60 ? `${Math.floor(n / 60)}분 ${Math.round(n % 60)}초` : `${n}초`;
+}
+
+// 영상에서 쓸 구간 [시작, 길이] (서버 app/videoclip.clip_range 와 같은 규칙)
+function clipRange(scene) {
+  const info = videoInfo(scene.video_index) || { duration: 0 };
+  const total = Math.max(0.5, info.duration || 0);
+  const start = Math.min(Math.max(0, Number(scene.video_start) || 0), total - 0.5);
+  const endIn = Number(scene.video_end) || 0;
+  const end = endIn > start && endIn <= total ? endIn : total;
+  return [start, Math.max(0.5, end - start)];
+}
+
+// 파일 고르는 창 (사진·영상). 고른 파일 목록을 돌려준다.
+function pickMediaFiles(multiple) {
+  return new Promise((resolve) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*,video/*";
+    input.multiple = !!multiple;
+    input.addEventListener("change", () => resolve([...input.files]));
+    input.click();
+  });
+}
+
+// 사진·영상 올리기 → [{kind: "photo"|"video", index}]
+async function uploadMedia(files) {
+  const added = [];
+  const errors = [];
+  for (const f of files) {
+    const isVideo = (f.type || "").startsWith("video/") || VIDEO_EXT.test(f.name || "");
+    if (isVideo) toast(`영상 올리는 중이에요: ${f.name} (큰 영상은 조금 걸려요)`);
+    const form = new FormData();
+    form.append("file", f);
+    try {
+      const data = await api("POST", `/api/jobs/${state.job.id}/${isVideo ? "videos" : "photos"}`, form);
+      state.job.post = data.post;
+      added.push(isVideo ? { kind: "video", index: data.post.videos.length - 1 }
+                         : { kind: "photo", index: data.post.images.length - 1 });
+    } catch (e) {
+      errors.push(`${f.name}: ${e.message}`);
+    }
+  }
+  if (errors.length) toast(errors.join(" / "));
+  return added;
+}
+
+function applyMedia(scene, m) {
+  if (m.kind === "video") {
+    Object.assign(scene, { video_index: m.index, video_start: 0, video_end: 0,
+                           video_sound: scene.video_sound || "low" });
+  } else {
+    Object.assign(scene, { image_index: m.index, more_images: [], photo_secs: [], video_index: null });
+  }
+}
+
+// 이 장면의 사진·영상을 내 파일로 바꾸기
+async function putMediaInScene(i) {
+  const files = await pickMediaFiles(false);
+  if (!files.length) return;
+  const added = await uploadMedia(files);
+  if (!added.length) return;
+  applyMedia(state.script.scenes[i], added[0]);
+  state.selected = i;
+  renderSources(state.job);
+  renderScenes();
+  focusScene(i);
+  toast(added[0].kind === "video" ? "영상을 넣었어요. 자막을 써 주세요." : "사진을 넣었어요.");
+}
+
+// 내 사진·영상으로 새 장면 만들기 (파일 하나에 장면 하나)
+async function addMediaScenes() {
+  const files = await pickMediaFiles(true);
+  if (!files.length) return;
+  const added = await uploadMedia(files);
+  if (!added.length) return;
+  const scenes = state.script.scenes;
+  let pos = state.selected === null ? scenes.length : state.selected + 1;
+  const first = pos;
+  added.forEach((m) => {
+    const scene = { text: "", image_index: null, place: "", motion: "auto", transition: "auto", section: "",
+                    video_index: null, video_sound: "low" };
+    applyMedia(scene, m);
+    scenes.splice(pos, 0, scene);
+    pos += 1;
+  });
+  state.selected = first;
+  renderSources(state.job);
+  renderScenes();
+  focusScene(first);
+  toast(`장면 ${added.length}개를 만들었어요. 자막을 써 주세요.`);
+}
+
+// 장면 카드의 영상 칸: 구간(시작·끝), 영상 소리, 빼기
+function sceneVideo(scene, i) {
+  const box = el("div", "scene-video");
+  const info = videoInfo(scene.video_index) || {};
+  box.appendChild(el("p", "video-name", `▶ 내 영상: ${info.name || ""} (${fmtSec(info.duration)})`));
+  const row = el("div", "video-range");
+  const len = el("small", "muted video-len");
+  const showLen = () => {
+    const [, l] = clipRange(scene);
+    len.textContent = `이 장면에서 ${fmtSec(l)} 동안 나와요` + (scene.text.trim() ? " (목소리가 더 길면 마지막 화면에서 멈춰요)" : "");
+  };
+  const num = (label, key, help) => {
+    const lab = el("label", "video-sec");
+    lab.appendChild(document.createTextNode(label + " "));
+    const inp = document.createElement("input");
+    inp.type = "number";
+    inp.min = "0";
+    inp.step = "0.1";
+    inp.max = String(info.duration || 0);
+    inp.value = String(scene[key] || 0);
+    inp.title = help;
+    inp.setAttribute("aria-label", `장면 ${i + 1} 영상 ${label}`);
+    inp.addEventListener("input", () => {
+      scene[key] = Math.max(0, Number(inp.value) || 0);
+      showLen();
+      updateSummary();
+      if (previewIndex() === i) renderPreview();
+    });
+    lab.append(inp, document.createTextNode(" 초"));
+    row.appendChild(lab);
+  };
+  num("시작", "video_start", "영상의 몇 초부터 쓸지");
+  num("끝", "video_end", "영상의 몇 초까지 쓸지 (0이면 끝까지)");
+  const sound = document.createElement("select");
+  Object.keys(VIDEO_SOUND_LABEL).forEach((k) => sound.appendChild(new Option(VIDEO_SOUND_LABEL[k], k)));
+  sound.value = scene.video_sound || "low";
+  sound.setAttribute("aria-label", `장면 ${i + 1} 영상 소리`);
+  sound.title = "영상에 원래 들어 있던 소리(현장음)";
+  sound.addEventListener("change", () => { scene.video_sound = sound.value; });
+  if (info.has_audio === false) {
+    sound.disabled = true;
+    sound.title = "이 영상에는 소리가 없어요";
+  }
+  row.appendChild(sound);
+  const off = el("button", "ghost", "영상 빼기");
+  off.type = "button";
+  off.title = "이 장면에서 영상을 빼고 사진으로 돌아가기";
+  off.onclick = (e) => {
+    e.stopPropagation();
+    scene.video_index = null;
+    renderScenes();
+  };
+  row.appendChild(off);
+  box.append(row, len);
+  box.appendChild(el("small", "muted", "끝을 0으로 두면 영상 끝까지 써요. 예: 시작 2, 끝 7 → 영상의 2초~7초 (5초)"));
+  showLen();
+  return box;
+}
+
 function renderScenes() {
   const list = $("scenes");
   list.innerHTML = "";
@@ -745,16 +923,28 @@ function renderScenes() {
     }
     thumb.onclick = () => openPicker(i, "set");
     if (excluded().includes(scene.image_index)) thumb.classList.add("excluded");
-    const photoBox = scenePhotos(scene, i);
+    let photoBox = scenePhotos(scene, i);
+    if (hasVideo(scene)) {   // 내 영상 장면: 사진 대신 영상
+      thumb.classList.add("has-img", "is-video");
+      thumb.style.backgroundImage = `url("${videoThumbUrl(scene.video_index)}")`;
+      thumb.textContent = "▶ 내 영상";
+      thumb.title = "영상 장면이에요. 아래 '내 사진·영상 넣기'로 바꿀 수 있어요";
+      thumb.onclick = () => putMediaInScene(i);
+      photoBox = sceneVideo(scene, i);
+    }
 
     const ta = document.createElement("textarea");
     ta.value = scene.text;
     ta.setAttribute("aria-label", `장면 ${i + 1} 자막`);
+    ta.title = "엔터로 줄을 나누면 영상 자막도 그 자리에서 줄이 바뀌어요";
+    ta.placeholder = "자막·목소리로 나올 글 (엔터로 줄을 나누면 자막도 줄이 바뀌어요)";
     const count = document.createElement("small");
     count.className = "count";
     const upd = () => {
       scene.text = ta.value;
-      count.textContent = `${ta.value.length}자` + (ta.value.length > 40 ? " · 조금 길어요" : "");
+      const rows = ta.value.split("\n").filter((r) => r.trim()).length;
+      count.textContent = `${ta.value.length}자` + (rows > 1 ? ` · 자막 ${rows}줄` : "")
+        + (ta.value.length > 40 ? " · 조금 길어요" : "");
       count.classList.toggle("over", ta.value.length > 40);
     };
     ta.addEventListener("input", () => { upd(); updateSummary(); if (previewIndex() === i) renderPreview(); });
@@ -827,6 +1017,7 @@ function renderScenes() {
     };
     act("+ 앞에 추가", "이 장면 앞에 빈 장면 넣기", () => addScene("", null, i));
     act("+ 뒤에 추가", "이 장면 뒤에 빈 장면 넣기", () => addScene("", null, i + 1));
+    act("내 사진·영상 넣기", "블로그에 없는 내 사진이나 영상을 이 장면에 넣기", () => putMediaInScene(i));
     act("복제", "이 장면을 똑같이 하나 더 만들기", () => duplicateScene(i));
     act("나누기", "자막의 커서 위치에서 장면을 둘로 나누기", () => splitScene(i, ta));
     const aiBtn = document.createElement("button");
@@ -927,9 +1118,13 @@ function scenePhotos(scene, i) {
 
 function updateSummary() {
   // 예상 길이: 성우가 1초에 5~6자쯤 읽고, 장면마다 0.4초 쉰다. 시작·끝 화면은 6.5초.
-  const scenes = state.script.scenes.filter((s) => s.text.trim());
+  // 자막 없는 사진 장면은 3초, 내 영상 장면은 영상 구간 길이(목소리가 더 길면 목소리 길이)
+  const scenes = state.script.scenes.filter((s) => s.text.trim() || hasVideo(s) || (s.image_index !== null && s.image_index !== undefined));
   const pace = { slow: 4.7, normal: 5.5, fast: 6.5 }[segValue("speed") || "normal"];
-  let sec = scenes.reduce((a, s) => a + s.text.trim().length / pace + 0.4, 0);
+  let sec = scenes.reduce((a, s) => {
+    const voice = s.text.trim() ? s.text.trim().length / pace + 0.4 : 0;
+    return a + (hasVideo(s) ? Math.max(clipRange(s)[1], voice) : (voice || 3));
+  }, 0);
   if (scenes.length) sec += ($("opt-intro").checked ? 3 : 0) + ($("opt-outro").checked ? 3.5 : 0);
   const m = Math.floor(sec / 60);
   const rest = Math.round(sec % 60);
@@ -978,18 +1173,38 @@ function renderPreview() {
   stage.dataset.aspect = segValue("aspect") || "16:9";
   stage.dataset.tpl = segValue("template") || "clean";
   const img = $("pv-img");
-  const has = s && s.image_index !== null && s.image_index !== undefined && s.image_index < imageCount();
+  const vid = $("pv-video");
+  const isVideo = hasVideo(s);
+  const has = !isVideo && s && s.image_index !== null && s.image_index !== undefined && s.image_index < imageCount();
   if (has) {
     const src = imageUrl(s.image_index);
     if (img.getAttribute("src") !== src) img.src = src;
   }
   img.classList.toggle("hidden", !has);
+  if (vid) {
+    if (isVideo) {   // 내 영상: 고른 구간을 소리 없이 되풀이해서 보여 준다
+      const [start, len] = clipRange(s);
+      const key = `${videoUrl(s.video_index)}|${start}|${len}`;
+      vid.dataset.start = String(start);
+      vid.dataset.end = String(start + len);
+      if (vid.dataset.key !== key) {
+        vid.dataset.key = key;
+        if (vid.getAttribute("src") !== videoUrl(s.video_index)) vid.src = videoUrl(s.video_index);
+        try { vid.currentTime = start; } catch (e) { /* 아직 안 열림 */ }
+      }
+      vid.play().catch(() => {});
+    } else if (!vid.paused) {
+      vid.pause();
+    }
+    vid.classList.toggle("hidden", !isVideo);
+  }
   $("pv-caption").textContent = s ? (s.text || "(자막이 비어 있어요)") : "장면을 만들면 여기서 미리 보여요";
   const place = $("pv-place");
   place.textContent = s && s.place ? s.place : "";
   place.classList.toggle("hidden", !(s && s.place && $("opt-title-bar").checked));
-  const photos = s ? photoList(s).length : 0;
-  $("pv-info").textContent = s ? `장면 ${i + 1} / ${scenes.length}` + (photos > 1 ? ` · 사진 ${photos}장이 차례로` : "") : "";
+  const photos = s && !isVideo ? photoList(s).length : 0;
+  $("pv-info").textContent = s ? `장면 ${i + 1} / ${scenes.length}` + (isVideo ? ` · 내 영상 ${fmtSec(clipRange(s)[1])}` : "")
+    + (photos > 1 ? ` · 사진 ${photos}장이 차례로` : "") : "";
   document.querySelectorAll("#pv-timeline .tl-item").forEach((b, k) => b.classList.toggle("on", k === i));
 }
 
@@ -1002,7 +1217,14 @@ function renderTimeline() {
     b.type = "button";
     b.title = s.text;
     b.setAttribute("aria-label", `타임라인 장면 ${i + 1}`);
-    if (s.image_index !== null && s.image_index !== undefined && s.image_index < imageCount()) {
+    if (hasVideo(s)) {
+      const img = document.createElement("img");
+      img.src = videoThumbUrl(s.video_index);
+      img.alt = "";
+      img.loading = "lazy";
+      b.appendChild(img);
+      b.appendChild(el("span", "tl-video", "▶"));
+    } else if (s.image_index !== null && s.image_index !== undefined && s.image_index < imageCount()) {
       const img = document.createElement("img");
       img.src = smallImageUrl(s.image_index);
       img.alt = "";
@@ -1270,8 +1492,10 @@ function collectScript() {
                    look: s.look || "auto", caption_size: s.caption_size || "auto",
                    caption_pos: s.caption_pos || "auto", strength: s.strength || "auto", hold: s.hold || 0,
                    more_images: s.more_images || [], photo_secs: s.photo_secs || [],
-                   photo_score: s.photo_score === undefined ? -1 : s.photo_score, photo_alts: s.photo_alts || [] }))
-    .filter((s) => s.text);
+                   photo_score: s.photo_score === undefined ? -1 : s.photo_score, photo_alts: s.photo_alts || [],
+                   video_index: hasVideo(s) ? s.video_index : null, video_start: Number(s.video_start) || 0,
+                   video_end: Number(s.video_end) || 0, video_sound: s.video_sound || "low" }))
+    .filter((s) => s.text || s.video_index !== null);   // 내 영상 장면은 자막이 없어도 남긴다
   return {
     scenes,
     yt_title: $("yt-title").value.trim(),
@@ -2297,6 +2521,17 @@ $("opt-title-bar").addEventListener("change", presetStillMatches);
 $("opt-title-bar").addEventListener("change", renderPreview);
 window.addEventListener("beforeunload", () => { if (state.dirty) saveNow().catch(() => {}); });
 $("btn-add-scene").onclick = () => addScene("", null, state.script.scenes.length);   // 맨 아래에
+$("btn-add-media").onclick = addMediaScenes;
+$("pv-video").addEventListener("timeupdate", () => {   // 고른 구간 끝에 오면 처음으로
+  const v = $("pv-video");
+  const start = Number(v.dataset.start || 0);
+  const end = Number(v.dataset.end || 0);
+  if (end > start && v.currentTime >= end) v.currentTime = start;
+});
+$("pv-video").addEventListener("loadedmetadata", () => {
+  const v = $("pv-video");
+  try { v.currentTime = Number(v.dataset.start || 0); } catch (e) { /* 무시 */ }
+});
 $("yt-title").addEventListener("input", updateTitleCount);
 $("btn-reedit").onclick = () => openEdit(state.job);
 $("btn-new").onclick = () => goHome(true);

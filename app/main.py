@@ -1,7 +1,9 @@
 """FastAPI 앱."""
 from __future__ import annotations
 
+import asyncio
 import logging
+import os
 import re
 from pathlib import Path
 from urllib.parse import quote
@@ -27,6 +29,8 @@ PC_ONLY = "설정은 PC에서만 바꿀 수 있어요."
 NO_COMMAND = "어떻게 고칠지 버튼을 고르거나 직접 적어 주세요."
 MAX_PHOTO_BYTES = 30 * 1024 * 1024
 PHOTO_TOO_BIG = "사진이 너무 커요. 30MB보다 작은 사진을 올려 주세요."
+MAX_VIDEO_BYTES = 4 * 1024 * 1024 * 1024
+VIDEO_TOO_BIG = "영상이 너무 커요. 4GB보다 작은 영상을 올려 주세요."
 LOCAL_ONLY = "이 프로그램은 설치된 PC에서만 쓸 수 있어요."
 _LOCAL_HOSTS = {"127.0.0.1", "localhost", "[::1]"}
 UNKNOWN = "알 수 없는 오류가 났어요. 다시 시도해 주세요."
@@ -165,6 +169,7 @@ def _public(s: JobState) -> dict:
     d["has_thumbnail"] = bool(_thumbnail_path(s))
     if d.get("post"):
         d["post"]["images"] = [{"url": i["url"]} for i in d["post"]["images"]]
+        d["post"]["videos"] = [{k: v for k, v in x.items() if k != "local_path"} for x in d["post"].get("videos", [])]
     if d.get("script"):
         d["script"]["scenes"] = [{k: v for k, v in sc.items() if k != "audio_path"} for sc in d["script"]["scenes"]]
     return d
@@ -313,6 +318,50 @@ def create_app(manager: JobManager | None = None) -> FastAPI:
         if len(data) > MAX_PHOTO_BYTES:
             raise UserError(PHOTO_TOO_BIG)
         return _public(manager.add_photo(job_id, data, file.filename or ""))
+
+    @app.post("/api/jobs/{job_id}/videos")
+    async def upload_video(job_id: str, file: UploadFile = File(...)):
+        """영상 직접 올리기: 큰 파일도 메모리에 다 올리지 않고 조금씩 임시 파일에 쓴다."""
+        manager.get(job_id)
+        tmp_dir = manager.dir(job_id) / "videos"
+        tmp_dir.mkdir(parents=True, exist_ok=True)
+        tmp = tmp_dir / f"upload_{os.getpid()}_{id(file)}.part"
+        size = 0
+        try:
+            with tmp.open("wb") as f:
+                while chunk := await file.read(4 * 1024 * 1024):
+                    size += len(chunk)
+                    if size > MAX_VIDEO_BYTES:
+                        raise UserError(VIDEO_TOO_BIG)
+                    f.write(chunk)
+            return _public(await asyncio.to_thread(manager.add_video, job_id, tmp, file.filename or ""))
+        finally:
+            tmp.unlink(missing_ok=True)
+
+    def _video_ref(job_id: str, index: int):
+        s = manager.get(job_id)
+        videos = s.post.videos if s.post else []
+        if not 0 <= index < len(videos) or not Path(videos[index].local_path).exists():
+            return None
+        return videos[index]
+
+    @app.get("/api/jobs/{job_id}/videos/{index}")
+    def video_file(job_id: str, index: int):
+        ref = _video_ref(job_id, index)
+        if ref is None:
+            return JSONResponse({"message": "영상이 없어요."}, status_code=404)
+        import mimetypes
+
+        kind = mimetypes.guess_type(ref.local_path)[0] or "video/mp4"
+        return FileResponse(ref.local_path, media_type=kind)
+
+    @app.get("/api/jobs/{job_id}/videos/{index}/thumb")
+    def video_thumb(job_id: str, index: int):
+        ref = _video_ref(job_id, index)
+        thumb = Path(ref.local_path).with_name(f"thumb_{index:02d}.jpg") if ref else None
+        if thumb is None or not thumb.exists():
+            return JSONResponse({"message": "영상이 없어요."}, status_code=404)
+        return FileResponse(thumb, media_type="image/jpeg", headers={"Cache-Control": "max-age=3600"})
 
     @app.post("/api/jobs/{job_id}/write")
     def write(job_id: str, body: WriteMode):
