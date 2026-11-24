@@ -28,11 +28,12 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
 
-      - name: Download FFmpeg (gyan.dev release essentials, SHA256 verified)
+      - name: Download FFmpeg 9.0.2 (gyan.dev essentials, pinned + SHA256 verified)
         run: |
-          $url = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
+          # 버전 고정(2026-11-24): 최신판(9.1)으로 바뀌자 확대 떨림 시험이 깨졌다. 확인한 버전만 넣는다.
+          $url = "https://www.gyan.dev/ffmpeg/builds/packages/ffmpeg-9.0.2-essentials_build.zip"
           Invoke-WebRequest $url -OutFile ffmpeg.zip
-          $expected = (Invoke-WebRequest "$url.sha256").Content.Trim().Split(" ")[0].ToLower()
+          $expected = "60f467265b1e312373dbcd92200c2618a74850f98d3d078e94296bb3fa2047ba"
           $actual = (Get-FileHash ffmpeg.zip -Algorithm SHA256).Hash.ToLower()
           if ($expected -ne $actual) { throw "FFmpeg checksum mismatch: $expected vs $actual" }
           Expand-Archive ffmpeg.zip -DestinationPath ffmpeg_extract
