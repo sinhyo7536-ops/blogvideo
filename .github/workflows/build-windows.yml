@@ -102,11 +102,15 @@ jobs:
           $inst = "$env:ProgramFiles\BlogVideo"
           if (Test-Path "$inst\BlogVideo.exe") { throw "old unsigned BlogVideo.exe was installed" }
           if ((Get-AuthenticodeSignature "$inst\runtime\pythonw.exe").Status -ne "Valid") { throw "installed pythonw.exe is not signed" }
+          Select-String -Path install.log -Pattern "shortcut|\.lnk" -SimpleMatch:$false | ForEach-Object { Write-Host "log: $($_.Line)" }
           $shell = New-Object -ComObject WScript.Shell
-          $lnks = Get-ChildItem "$env:ProgramData\Microsoft\Windows\Start Menu\Programs", "$env:PUBLIC\Desktop" -Recurse -Filter *.lnk -ErrorAction SilentlyContinue |
-            ForEach-Object { $shell.CreateShortcut($_.FullName) } | Where-Object { $_.TargetPath -like "$inst\*" }
+          $dirs = @("$env:ProgramData\Microsoft\Windows\Start Menu\Programs", "$env:PUBLIC\Desktop",
+                    "$env:APPDATA\Microsoft\Windows\Start Menu\Programs", "$env:USERPROFILE\Desktop")
+          $lnks = @(Get-ChildItem $dirs -Recurse -Filter *.lnk -ErrorAction SilentlyContinue |
+            ForEach-Object { $shell.CreateShortcut($_.FullName) } | Where-Object { $_.TargetPath -match "pythonw\.exe$" })
           $lnks | ForEach-Object { Write-Host "shortcut: $($_.FullName) -> $($_.TargetPath) $($_.Arguments) (in $($_.WorkingDirectory))" }
-          $app_lnks = @($lnks | Where-Object { $_.TargetPath -like "*\runtime\pythonw.exe" })
+          $app_lnks = @($lnks | Where-Object { $_.TargetPath -like "*\BlogVideo\runtime\pythonw.exe" })
+          Write-Host "pythonw shortcuts: $($lnks.Count), app shortcuts: $($app_lnks.Count)"
           if ($app_lnks.Count -lt 2) { throw "expected start menu + desktop shortcuts to runtime\pythonw.exe" }
           if ($app_lnks | Where-Object { $_.Arguments -ne "-m app.launcher" -or $_.WorkingDirectory -ne $inst }) { throw "shortcut arguments or folder are wrong" }
           $app = Start-Process -FilePath "$inst\runtime\pythonw.exe" -ArgumentList "-m","app.launcher" -WorkingDirectory $inst -PassThru
