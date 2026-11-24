@@ -56,13 +56,19 @@ def _download(url: str) -> bytes:
 
 def check_signatures(runtime: Path) -> None:
     """공식 파이썬 파일이 파이썬 재단 서명을 그대로 갖고 있는지 확인 (윈도우)."""
-    files = ",".join(f"'{runtime / f}'" for f in SIGNED_FILES)
-    ps = (f"foreach ($f in @({files})) {{ $s = Get-AuthenticodeSignature $f; "
+    import os
+
+    files = ",".join(f"'{(runtime / f).resolve()}'" for f in SIGNED_FILES)
+    ps = (f"foreach ($f in @({files})) {{ $s = Get-AuthenticodeSignature -LiteralPath $f; "
           f"if ($s.Status -ne 'Valid' -or $s.SignerCertificate.Subject -notmatch '{SIGNER}') "
-          f"{{ Write-Output \"BAD $f $($s.Status) $($s.SignerCertificate.Subject)\" }} }}")
-    out = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True, check=True)
-    if "BAD" in out.stdout:
-        raise SystemExit("python signature check failed:\n" + out.stdout)
+          f"{{ Write-Output \"BAD $f $($s.Status) $($s.SignerCertificate.Subject)\" }} }}; Write-Output CHECKED")
+    shell = shutil.which("pwsh") or "powershell"
+    # PowerShell 7 안에서 5.1을 부르면 물려받은 모듈 경로 때문에 서명 확인 명령을 못 불러온다 → 지우고 부른다
+    env = {k: v for k, v in os.environ.items() if k.upper() != "PSMODULEPATH"}
+    out = subprocess.run([shell, "-NoProfile", "-Command", ps], capture_output=True, text=True, env=env)
+    if "BAD" in out.stdout or "CHECKED" not in out.stdout:
+        raise SystemExit("python signature check failed:\n" + out.stdout + out.stderr)
+    print("signatures ok:", ", ".join(SIGNED_FILES))
 
 
 def build(out: Path, embed_zip: Path | None = None) -> Path:
