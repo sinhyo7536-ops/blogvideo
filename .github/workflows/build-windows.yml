@@ -102,9 +102,13 @@ jobs:
           $inst = "$env:ProgramFiles\BlogVideo"
           if (Test-Path "$inst\BlogVideo.exe") { throw "old unsigned BlogVideo.exe was installed" }
           if ((Get-AuthenticodeSignature "$inst\runtime\pythonw.exe").Status -ne "Valid") { throw "installed pythonw.exe is not signed" }
-          $lnk = (New-Object -ComObject WScript.Shell).CreateShortcut("$env:ProgramData\Microsoft\Windows\Start Menu\Programs\블로그 영상 변환기\블로그 영상 변환기.lnk")
-          Write-Host "shortcut: $($lnk.TargetPath) $($lnk.Arguments) (in $($lnk.WorkingDirectory))"
-          if ($lnk.TargetPath -notmatch "runtime\\pythonw.exe$" -or $lnk.Arguments -ne "-m app.launcher") { throw "start menu shortcut is wrong" }
+          $shell = New-Object -ComObject WScript.Shell
+          $lnks = Get-ChildItem "$env:ProgramData\Microsoft\Windows\Start Menu\Programs", "$env:PUBLIC\Desktop" -Recurse -Filter *.lnk -ErrorAction SilentlyContinue |
+            ForEach-Object { $shell.CreateShortcut($_.FullName) } | Where-Object { $_.TargetPath -like "$inst\*" }
+          $lnks | ForEach-Object { Write-Host "shortcut: $($_.FullName) -> $($_.TargetPath) $($_.Arguments) (in $($_.WorkingDirectory))" }
+          $app_lnks = @($lnks | Where-Object { $_.TargetPath -like "*\runtime\pythonw.exe" })
+          if ($app_lnks.Count -lt 2) { throw "expected start menu + desktop shortcuts to runtime\pythonw.exe" }
+          if ($app_lnks | Where-Object { $_.Arguments -ne "-m app.launcher" -or $_.WorkingDirectory -ne $inst }) { throw "shortcut arguments or folder are wrong" }
           $app = Start-Process -FilePath "$inst\runtime\pythonw.exe" -ArgumentList "-m","app.launcher" -WorkingDirectory $inst -PassThru
           $ok = $false
           for ($i = 0; $i -lt 60; $i++) {
