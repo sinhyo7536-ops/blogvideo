@@ -106,9 +106,14 @@ jobs:
           $shell = New-Object -ComObject WScript.Shell
           $dirs = @("$env:ProgramData\Microsoft\Windows\Start Menu\Programs", "$env:PUBLIC\Desktop",
                     "$env:APPDATA\Microsoft\Windows\Start Menu\Programs", "$env:USERPROFILE\Desktop")
-          $lnks = @(Get-ChildItem $dirs -Recurse -Filter *.lnk -ErrorAction SilentlyContinue |
-            ForEach-Object { $shell.CreateShortcut($_.FullName) } | Where-Object { $_.TargetPath -match "pythonw\.exe$" })
-          $lnks | ForEach-Object { Write-Host "shortcut: $($_.FullName) -> $($_.TargetPath) $($_.Arguments) (in $($_.WorkingDirectory))" }
+          # 러너는 영어 윈도우(코드 페이지 1252)라 WScript.Shell이 한글 이름의 .lnk를 못 읽는다 → 영어 이름으로 복사해서 읽는다
+          $n = 0
+          $lnks = @(Get-ChildItem $dirs -Recurse -Filter *.lnk -ErrorAction SilentlyContinue | ForEach-Object {
+            $n++; $copy = Join-Path $env:RUNNER_TEMP "lnk_$n.lnk"; Copy-Item -LiteralPath $_.FullName $copy -Force
+            $s = $shell.CreateShortcut($copy)
+            [pscustomobject]@{ Name = $_.FullName; TargetPath = $s.TargetPath; Arguments = $s.Arguments; WorkingDirectory = $s.WorkingDirectory }
+          } | Where-Object { $_.TargetPath -match "pythonw\.exe$" })
+          $lnks | ForEach-Object { Write-Host "shortcut: $($_.Name) -> $($_.TargetPath) $($_.Arguments) (in $($_.WorkingDirectory))" }
           $app_lnks = @($lnks | Where-Object { $_.TargetPath -like "*\BlogVideo\runtime\pythonw.exe" })
           Write-Host "pythonw shortcuts: $($lnks.Count), app shortcuts: $($app_lnks.Count)"
           if ($app_lnks.Count -lt 2) { throw "expected start menu + desktop shortcuts to runtime\pythonw.exe" }
